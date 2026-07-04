@@ -1,189 +1,146 @@
 # 云雾酒馆 AI Chat & RPG
 
-> 一款可以本地部署和游玩的 AI 聊天与跑团应用，需要自行配置 API Key。
+一款可以本地部署和游玩的 AI 聊天与文字冒险游戏应用。
 
-## 🚀 快速开始
+## 📖 项目简介
+
+云雾酒馆是一个集成 AI 聊天与角色扮演游戏的 Web 应用，用户可以：
+
+- 与多种智能体进行对话互动
+- 探索不同的游戏世界和剧情
+- 创建和管理游戏会话
+- 观看其他玩家的游戏过程
+- 提供反馈和评价
+
+## 🛠️ 技术栈
+
+- **后端**: Flask 3.x
+- **数据库**: SQLite
+- **前端**: Vanilla JavaScript + CSS3
+- **打包工具**: PyInstaller
+
+## � 安装步骤
 
 ### 环境要求
-- Python 3.8+
-- Git（用于代码同步）
+
+- Python 3.8 或更高版本
+- 网络连接（用于调用 AI API）
 
 ### 安装依赖
+
 ```bash
 cd src/backend
 pip install -r requirements.txt
 ```
 
-### 配置环境变量
-编辑 `src/backend/.env`：
+### 配置 API Key
+
+在 `src/backend/` 目录下创建 `.env` 文件：
+
 ```env
-API_KEY=your_api_key_here
+API_KEY=your_siliconflow_api_key_here
 ADMIN_PASSWORD=your_admin_password
 ```
 
-### 启动应用
-```bash
-# 开发模式
-python src/backend/app.py
+> **注意**: 请使用 SiliconFlow API Key
 
-# 或使用启动脚本
+## � 启动应用
+
+### 方式一：Python 直接运行
+
+```bash
+cd src/backend
+python app.py
+```
+
+### 方式二：使用启动脚本
+
+```bash
+# Windows
 .\tavern\start.bat
+
+# PowerShell
+.\tavern\start.ps1
 ```
 
-访问 http://localhost:9000
+### 访问应用
 
----
-
-## 📐 技术栈
-
-| 组件 | 技术 |
-|------|------|
-| 后端 | Flask 2.x |
-| 数据库 | SQLite |
-| 前端 | Vanilla JS + CSS3 |
-| 打包 | PyInstaller |
-| 版本控制 | Git |
-
----
-
-## 🔧 开发规范
-
-### 1. Git 同步规则（强制）
-
-> **每次修改后必须执行以下操作**，确保代码及时同步到远程仓库。
-
-#### 修改流程
-```bash
-# 1. 修改代码后，先同步 release/ 目录
-copy src/backend/static/* release/static/
-copy src/backend/templates/* release/templates/
-copy src/backend/app.py release/app.py
-
-# 2. 查看变更
-git status
-
-# 3. 添加变更
-git add .
-
-# 4. 提交（必须包含版本号和修改说明）
-git commit -m "v2.x.x: 描述你的修改内容"
-
-# 5. 推送
-git push origin main
-```
-
-#### 提交信息规范
-```
-v2.x.x: 修改类型 - 具体描述
-
-示例:
-v2.0.6: fix - 修复C3玩家名存储型XSS
-v2.0.7: feat - 添加AI行为评估脚本
-v2.0.8: refactor - 清理无用代码
-```
-
-#### 分支策略
-- `main`：主分支，保持稳定可运行状态
-- 开发直接在 `main` 分支进行，确保每次提交都是可运行的
-
-### 2. 代码修改规范
-
-#### 修改入口
-- **唯一入口**: 所有代码修改必须在 `src/backend/` 目录进行
-- **同步规则**: 修改完成后同步到 `release/`（前端文件及数据文件）
-- **禁止操作**: 直接在 `release/` 中修改代码
-
-#### 关键约束
-- 端口必须为 9000
-- JSON_AS_ASCII = False（支持中文）
-- JSON 文件操作必须使用 `threading.Lock()` 保护
-- 异常处理必须使用 `except Exception as e:` 而非裸 `except:`
-
-#### 修改后检查清单
-- [ ] `version.json` 和 `CHANGELOG.json` 在 `src/backend/`、`release/` 间是否一致
-- [ ] 新增的 API 路由是否有正确的认证装饰器
-- [ ] 新增的 API 返回值中是否包含 `api_key` 等敏感字段（应过滤）
-- [ ] 文档更新（问题反馈与报告.md → 项目架构和相关规范.md → 项目记忆.md）
-- [ ] 运行 `python docs/AI行为评估脚本.py --auto` 进行自评
-
-### 3. 安全规范
-
-- **XSS 防护**: 所有用户输入必须通过 `escapeHtml()` 转义
-- **SQL 注入**: 使用参数化查询，禁止字符串拼接
-- **敏感信息**: API Key、密码等敏感信息必须过滤，禁止明文返回
-- **SSRF 防护**: URL 参数必须通过 `is_safe_url()` 校验
-- **CSRF 防护**: 所有 POST 请求必须验证会话
-
-### 4. 文档同步规则
-
-每次修改后必须按以下顺序更新文档：
-
-1. **问题反馈与报告.md** - 记录新发现的问题或标记已修复的问题
-2. **项目架构和相关规范.md** - 更新版本历史和问题统计
-3. **项目记忆.md** - 更新变更摘要、待办优先级、已知风险
-4. **README.md** - （如有必要）更新使用说明
-
----
+启动后访问：**http://localhost:9000**
 
 ## 📁 项目结构
 
 ```
 ai_chat/
-├── docs/                      # 文档
-│   ├── 项目架构和相关规范.md    # 架构规范（必读）
+├── docs/                      # 项目文档
+│   ├── 项目架构和相关规范.md    # 架构与规范说明
 │   ├── 问题反馈与报告.md        # 问题清单
-│   ├── 项目记忆.md             # AI 共同记忆
-│   ├── 优化建议.md             # 优化建议（需审批）
-│   └── AI行为评估脚本.py        # AI 行为评估工具
+│   └── 项目记忆.md             # 项目共同记忆
 ├── scripts/                   # 工具脚本
-├── src/                       # 源码
-│   └── backend/               # Flask 应用（唯一修改入口）
-│       ├── app.py             # 主应用
-│       ├── static/            # 前端资源
-│       ├── templates/         # Jinja2 模板
-│       └── instance/          # SQLite 数据库
-├── release/                   # 发布版（自动同步）
-└── tavern/                    # 开发启动入口
+├── src/                       # 源代码
+│   └── backend/               # Flask 应用
+│       ├── app.py             # 主应用程序
+│       ├── static/            # 前端资源文件
+│       │   ├── script.js      # 主脚本
+│       │   ├── style.css      # 样式文件
+│       │   ├── feedback.js    # 反馈模块脚本
+│       │   └── feedback.css   # 反馈模块样式
+│       ├── templates/         # HTML 模板
+│       │   ├── index.html     # 首页
+│       │   ├── dashboard.html # 仪表盘
+│       │   ├── feedback.html  # 反馈页面
+│       │   └── spectate.html  # 观战页面
+│       ├── instance/          # SQLite 数据库
+│       └── requirements.txt   # Python 依赖
+├── release/                   # 发布版本
+└── tavern/                    # 启动入口
 ```
 
----
+## 🎮 使用说明
 
-## 📋 AI 行为评估
+### 1. 首页
 
-AI 在执行任务前后必须阅读并运行 `docs/AI行为评估脚本.py`：
+进入首页后，选择智能体和游戏世界，输入角色名开始对话或游戏。
+
+### 2. 对话功能
+
+- 支持多轮对话
+- 实时显示 AI 回复
+- 可以切换不同的智能体和模型
+
+### 3. 游戏世界
+
+- 提供多个预设的游戏世界
+- 每个世界有独特的剧情和角色
+- 支持自由探索和剧情推进
+
+### 4. 观战模式
+
+- 可以观看其他玩家的游戏过程
+- 实时同步游戏状态
+
+### 5. 反馈系统
+
+- 可以对游戏体验进行评价
+- 提交建议和问题
+
+## � 开发模式
+
+### 修改代码
+
+所有代码修改应在 `src/backend/` 目录进行，修改后会自动同步到 `release/` 目录。
+
+### 运行测试
 
 ```bash
-# 自动评估
-python docs/AI行为评估脚本.py --auto
-
-# 交互式评估
-python docs/AI行为评估脚本.py
-
-# 生成报告
-python docs/AI行为评估脚本.py --report
+python scripts/test_rpg.py
 ```
 
-评估维度：
-- 规范遵循（15%）
-- 代码质量（15%）
-- 安全意识（20%）
-- 问题处理（15%）
-- 文档同步（10%）
-- 任务完成度（10%）
-- 错误处理（10%）
-- 效率优化（5%）
+### 重置数据库
 
----
-
-## 🔒 安全提醒
-
-1. 永远不要将 `.env` 文件提交到 Git（已在 `.gitignore` 中忽略）
-2. 定期更换 API Key
-3. 仅允许管理员账户访问后台功能
-4. 注意过滤用户输入，防止 XSS 和 SQL 注入
-
----
+```bash
+python scripts/reset_db.py
+```
 
 ## 📄 许可证
 
-MIT License - 详见 LICENSE 文件
+MIT License
