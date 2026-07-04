@@ -2,6 +2,7 @@
 let currentPage = 1;
 let currentUser = null;
 let isAdmin = false;
+let csrfToken = '';
 
 const $ = id => document.getElementById(id);
 const toastContainer = $('toastContainer');
@@ -15,10 +16,24 @@ function toast(msg, type) {
     setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, 2500);
 }
 
+async function fetchCsrfToken() {
+    try {
+        const res = await fetch('/api/csrf-token', { credentials: 'include' });
+        const data = await res.json();
+        csrfToken = data.csrf_token || '';
+    } catch {}
+}
+
+fetchCsrfToken();
+
 // ===== API Helpers =====
 async function api(url, options = {}) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+    }
     const res = await fetch(url, {
-        headers: { 'Content-Type': 'application/json', ...options.headers },
+        headers: { ...headers, ...options.headers },
         credentials: 'include',
         ...options
     });

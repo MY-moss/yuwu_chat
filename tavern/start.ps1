@@ -16,12 +16,12 @@ Write-Host ""
 
 Start-Sleep -Seconds 1
 
-$exePath = Join-Path $PSScriptRoot "云雾酒馆.exe"
+$exePath = Join-Path $PSScriptRoot ".." "release" "云雾酒馆.exe"
 if (Test-Path $exePath) {
     Start-Process "http://127.0.0.1:9000"
     & $exePath
 } else {
-    $tavernExePath = Join-Path $PSScriptRoot "tavern.exe"
+    $tavernExePath = Join-Path $PSScriptRoot ".." "release" "tavern.exe"
     if (Test-Path $tavernExePath) {
         Start-Process "http://127.0.0.1:9000"
         & $tavernExePath

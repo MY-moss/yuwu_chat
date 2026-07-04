@@ -355,10 +355,26 @@ function setupEventListeners() {
     });
 }
 
+let csrfToken = '';
+
+async function fetchCsrfToken() {
+    try {
+        const res = await fetch('/api/csrf-token', { credentials: 'include' });
+        const data = await res.json();
+        csrfToken = data.csrf_token || '';
+    } catch {}
+}
+
+fetchCsrfToken();
+
 // ===== API Helpers =====
 async function api(url, opts = {}) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+    }
     const res = await fetch(url, {
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include',
         ...opts
     });

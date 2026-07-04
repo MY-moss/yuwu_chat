@@ -60,6 +60,27 @@ app.config['JSON_AS_ASCII'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
+def escape_html(s):
+    if s is None:
+        return ''
+    return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
+
+@app.before_request
+def csrf_protect():
+    if request.method in ['POST', 'PUT', 'DELETE']:
+        csrf_token = request.headers.get('X-CSRF-Token', '')
+        session_token = session.get('_csrf_token', '')
+        if csrf_token != session_token:
+            return jsonify({"error": "CSRF token invalid"}), 403
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(16)
+
+@app.route('/api/csrf-token')
+def get_csrf_token():
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(16)
+    return jsonify({"csrf_token": session['_csrf_token']})
+
 @app.after_request
 def add_no_cache_header(response):
     if request.path.startswith('/static/'):
@@ -195,16 +216,20 @@ def save_ratings(ratings):
             json.dump(ratings, f, ensure_ascii=False, indent=2)
 
 def load_worlds():
-    if not os.path.exists(WORLDS_FILE):
+    try:
+        if not os.path.exists(WORLDS_FILE):
+            return []
+        with _worlds_lock:
+            with open(WORLDS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            worlds = data.get("worlds", [])
+            for i, w in enumerate(worlds):
+                if "order" not in w:
+                    w["order"] = i
+            return worlds
+    except Exception as e:
+        print(f"[ERROR] load_worlds failed: {e}", flush=True)
         return []
-    with _worlds_lock:
-        with open(WORLDS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        worlds = data.get("worlds", [])
-        for i, w in enumerate(worlds):
-            if "order" not in w:
-                w["order"] = i
-        return worlds
 
 def save_worlds_data(worlds):
     with _worlds_lock:
@@ -425,10 +450,14 @@ def init_db():
 
 
 def load_agents():
-    with _agents_lock:
-        with open(AGENTS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("agents", [])
+    try:
+        with _agents_lock:
+            with open(AGENTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("agents", [])
+    except Exception as e:
+        print(f"[ERROR] load_agents failed: {e}", flush=True)
+        return []
 
 
 def save_agents(agents):
@@ -580,7 +609,8 @@ def reset_admin_password():
         new_pwd = secrets.token_urlsafe(12)
         admin.set_password(new_pwd)
         db.session.commit()
-        return jsonify({"message": "管理员密码已重置", "new_password": new_pwd})
+        print(f"[SECURITY] Admin password reset: {new_pwd}", flush=True)
+        return jsonify({"message": "管理员密码已重置，请查看服务器日志获取新密码"})
     return jsonify({"error": "管理员用户不存在"}), 404
 
 
@@ -886,7 +916,8 @@ def chat():
             }
             resp = requests.post(api_url, headers=headers, json=body, timeout=30)
             if resp.status_code != 200:
-                raise Exception(f"API {resp.status_code}: {resp.text[:300]}")
+                print(f"[ERROR] chat API failed: {resp.status_code}", flush=True)
+                raise Exception(f"API调用失败")
             result = resp.json()
             reply = result["choices"][0]["message"]["content"]
             total_tokens, _, _ = parse_usage(result)
@@ -915,7 +946,8 @@ def chat():
         })
 
     except Exception as e:
-        return jsonify({"reply": f"（{agent['name']}擦了擦额头的汗）抱歉，刚才出了点问题……{str(e)}"}), 500
+        print(f"[ERROR] chat failed: {e}", flush=True)
+        return jsonify({"reply": f"（{agent['name']}擦了擦额头的汗）抱歉，刚才出了点问题……请稍后重试"}), 500
 
 
 @app.route("/api/history/<agent_id>", methods=["DELETE"])
@@ -927,27 +959,32 @@ def clear_history(agent_id):
 
 
 def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=400):
-    api_key, api_url = get_effective_api(model)
-    if not api_key:
+    try:
+        api_key, api_url = get_effective_api(model)
+        if not api_key:
+            return None, {}, 0
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        body = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
+        resp = requests.post(api_url, headers=headers, json=body, timeout=60)
+        if resp.status_code != 200:
+            print(f"[ERROR] call_ai API failed: {resp.status_code}", flush=True)
+            raise Exception(f"API调用失败")
+        data = resp.json()
+        full = data["choices"][0]["message"]["content"]
+        total_tokens, _, _ = parse_usage(data)
+        story, sections = parse_rpg_reply(full)
+        return story, sections, total_tokens
+    except Exception as e:
+        print(f"[ERROR] call_ai failed: {e}", flush=True)
         return None, {}, 0
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    body = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens
-    }
-    resp = requests.post(api_url, headers=headers, json=body, timeout=60)
-    if resp.status_code != 200:
-        raise Exception(f"API {resp.status_code}: {resp.text[:300]}")
-    data = resp.json()
-    full = data["choices"][0]["message"]["content"]
-    total_tokens, _, _ = parse_usage(data)
-    story, sections = parse_rpg_reply(full)
-    return story, sections, total_tokens
 
 
 def parse_rpg_reply(text):
@@ -1020,16 +1057,17 @@ def reorder_worlds():
 @login_required
 def active_count():
     """返回所有用户活跃跑团总数及按世界书统计"""
-    by_world = {}
-    for sid, s in rpg_sessions.items():
-        wid = s.get("world_id", "unknown")
-        if wid not in by_world:
-            by_world[wid] = 0
-        by_world[wid] += 1
-    return jsonify({
-        "total": len(rpg_sessions),
-        "by_world": by_world
-    })
+    with _sessions_lock:
+        by_world = {}
+        for sid, s in rpg_sessions.items():
+            wid = s.get("world_id", "unknown")
+            if wid not in by_world:
+                by_world[wid] = 0
+            by_world[wid] += 1
+        return jsonify({
+            "total": len(rpg_sessions),
+            "by_world": by_world
+        })
 
 
 @app.route("/api/rpg/worlds/<world_id>/ratings", methods=["GET"])
@@ -1206,18 +1244,19 @@ def admin_stats():
         models[m] = models.get(m, {"calls":0, "tokens":0})
         models[m]["calls"] += 1
         models[m]["tokens"] += l.get("tokens", 0)
-    active_sessions = len(rpg_sessions)
-    sessions_detail = []
-    worlds = load_worlds()
-    wmap = {w["id"]: w["name"] for w in worlds}
-    for sid, s in list(rpg_sessions.items())[:50]:
-        sessions_detail.append({
-            "session_id": sid,
-            "player": s.get("player_name", "?"),
-            "world": wmap.get(s.get("world_id", ""), "?"),
-            "rounds": len(s.get("storyline", [])),
-            "last_active": s.get("last_active", "")
-        })
+    with _sessions_lock:
+        active_sessions = len(rpg_sessions)
+        sessions_detail = []
+        worlds = load_worlds()
+        wmap = {w["id"]: w["name"] for w in worlds}
+        for sid, s in list(rpg_sessions.items())[:50]:
+            sessions_detail.append({
+                "session_id": sid,
+                "player": s.get("player_name", "?"),
+                "world": wmap.get(s.get("world_id", ""), "?"),
+                "rounds": len(s.get("storyline", [])),
+                "last_active": s.get("last_active", "")
+            })
     online_users_detail = User.query.filter(
         User.last_active >= datetime.now() - timedelta(minutes=20)
     ).order_by(User.last_active.desc()).all()
@@ -1243,72 +1282,76 @@ def admin_stats():
 @app.route("/api/rpg/session/<session_id>/share", methods=["POST"])
 @login_required
 def share_session(session_id):
-    sess = rpg_sessions.get(session_id)
-    if not sess:
-        return jsonify({"error": "会话不存在"}), 404
-    if sess.get("user_id") != current_user.id:
-        return jsonify({"error": "无权操作"}), 403
-    if not sess.get("share_token"):
-        sess["share_token"] = secrets.token_hex(8)
-        save_sessions()
-    return jsonify({
-        "share_token": sess["share_token"],
-        "share_url": f"/shared/session/{sess['share_token']}"
-    })
+    with _sessions_lock:
+        sess = rpg_sessions.get(session_id)
+        if not sess:
+            return jsonify({"error": "会话不存在"}), 404
+        if sess.get("user_id") != current_user.id:
+            return jsonify({"error": "无权操作"}), 403
+        if not sess.get("share_token"):
+            sess["share_token"] = secrets.token_hex(8)
+            save_sessions()
+        return jsonify({
+            "share_token": sess["share_token"],
+            "share_url": f"/shared/session/{sess['share_token']}"
+        })
 
 
 @app.route("/api/rpg/session/<session_id>/unshare", methods=["POST"])
 @login_required
 def unshare_session(session_id):
-    sess = rpg_sessions.get(session_id)
-    if not sess:
-        return jsonify({"error": "会话不存在"}), 404
-    if sess.get("user_id") != current_user.id:
-        return jsonify({"error": "无权操作"}), 403
-    sess.pop("share_token", None)
-    save_sessions()
-    return jsonify({"status": "ok"})
+    with _sessions_lock:
+        sess = rpg_sessions.get(session_id)
+        if not sess:
+            return jsonify({"error": "会话不存在"}), 404
+        if sess.get("user_id") != current_user.id:
+            return jsonify({"error": "无权操作"}), 403
+        sess.pop("share_token", None)
+        save_sessions()
+        return jsonify({"status": "ok"})
 
 
 @app.route("/api/rpg/shared/<share_token>")
 def view_shared_session(share_token):
-    for sid, sess in rpg_sessions.items():
-        if sess.get("share_token") == share_token:
-            worlds = load_worlds()
-            w = next((w for w in worlds if w["id"] == sess.get("world_id", "")), {})
-            sections = sess.get("sections", {})
-            return jsonify({
-                "player_name": sess.get("player_name", "?"),
-                "world": {"name": w.get("name", "?"), "emoji": w.get("emoji", "📖")},
-                "last_story": sess.get("last_story", ""),
-                "last_state": sess.get("last_state", sections.get("状态", "")),
-                "relationship": sections.get("关系_map", {}),
-                "sections": sections,
-                "storyline": sess.get("storyline", [])
-            })
+    with _sessions_lock:
+        for sid, sess in rpg_sessions.items():
+            if sess.get("share_token") == share_token:
+                worlds = load_worlds()
+                w = next((w for w in worlds if w["id"] == sess.get("world_id", "")), {})
+                sections = sess.get("sections", {})
+                return jsonify({
+                    "player_name": sess.get("player_name", "?"),
+                    "world": {"name": w.get("name", "?"), "emoji": w.get("emoji", "📖")},
+                    "last_story": sess.get("last_story", ""),
+                    "last_state": sess.get("last_state", sections.get("状态", "")),
+                    "relationship": sections.get("关系_map", {}),
+                    "sections": sections,
+                    "storyline": sess.get("storyline", [])
+                })
     return jsonify({"error": "分享链接无效或已过期"}), 404
 
 
 @app.route("/api/rpg/shared-sessions")
 def list_shared_sessions():
-    worlds = load_worlds()
-    wmap = {w["id"]: w for w in worlds}
-    items = []
-    for sid, sess in rpg_sessions.items():
-        token = sess.get("share_token")
-        if not token:
-            continue
-        w = wmap.get(sess.get("world_id", ""), {})
-        items.append({
-            "share_token": token,
-            "player": sess.get("player_name", "?"),
-            "world_name": w.get("name", "?"),
-            "world_emoji": w.get("emoji", "📖"),
-            "rounds": len(sess.get("storyline", [])),
-            "last_active": sess.get("last_active", "")
-        })
-    items.sort(key=lambda x: x.get("last_active", "") or "", reverse=True)
-    return jsonify(items)
+    with _sessions_lock:
+        worlds = load_worlds()
+        wmap = {w["id"]: w for w in worlds}
+        items = []
+        for sid, sess in rpg_sessions.items():
+            token = sess.get("share_token")
+            if not token:
+                continue
+            w = wmap.get(sess.get("world_id", ""), {})
+            items.append({
+                "share_token": token,
+                "player": sess.get("player_name", "?"),
+                "world_name": w.get("name", "?"),
+                "world_emoji": w.get("emoji", "📖"),
+                "rounds": len(sess.get("storyline", [])),
+                "last_active": sess.get("last_active", "")
+            })
+        items.sort(key=lambda x: x.get("last_active", "") or "", reverse=True)
+        return jsonify(items)
 
 
 @app.route("/shared/session/<share_token>")
@@ -1362,13 +1405,20 @@ def start_rpg():
         {"role": "user", "content": f"玩家名称为「{player_name}」。游戏开始，请描述开场场景并输出所有强制段。"}
     ]
 
-    story, sections, tokens = call_ai(messages,
-                    model=model,
-                    temperature=world.get("temperature", 0.85),
-                    max_tokens=world.get("max_tokens", 600))
+    try:
+        story, sections, tokens = call_ai(messages,
+                        model=model,
+                        temperature=world.get("temperature", 0.85),
+                        max_tokens=world.get("max_tokens", 600))
+    except Exception as e:
+        print(f"[ERROR] start_rpg AI call failed: {e}", flush=True)
+        story = None
+        sections = None
+        tokens = 0
+
     if not story:
         story = f"{world['emoji']} {world['desc']}\n\n【1】推开大门\n【2】侧耳倾听\n【3】转身离开"
-        sections = {"状态": "（未配置AI密钥）"}
+        sections = {"状态": "（AI服务暂时不可用）"}
         tokens = 0
 
     state_str = sections.get("状态", "")
@@ -1450,13 +1500,21 @@ def rpg_act():
         session["history"] = [session["history"][0]] + session["history"][-28:]
 
     session["model"] = model
-    story, sections, tokens = call_ai(session["history"],
-                    model=model,
-                    temperature=world.get("temperature", 0.85),
-                    max_tokens=world.get("max_tokens", 600))
+
+    try:
+        story, sections, tokens = call_ai(session["history"],
+                        model=model,
+                        temperature=world.get("temperature", 0.85),
+                        max_tokens=world.get("max_tokens", 600))
+    except Exception as e:
+        print(f"[ERROR] rpg_act AI call failed: {e}", flush=True)
+        story = None
+        sections = None
+        tokens = 0
+
     if not story:
         story = f"（你选择了：{choice}）\n\n故事继续……\n\n【1】继续前进\n【2】仔细观察四周\n【3】回头"
-        sections = session.get("sections", {"状态": "【未配置AI】"})
+        sections = session.get("sections", {"状态": "【AI服务暂时不可用】"})
         tokens = 0
 
     # Merge: keep previous sections that AI didn't update

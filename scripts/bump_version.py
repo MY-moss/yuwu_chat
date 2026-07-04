@@ -4,8 +4,8 @@ import os
 from datetime import datetime
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-VERSION_FILE = os.path.join(SCRIPT_DIR, "..", "version.json")
-CHANGELOG_FILE = os.path.join(SCRIPT_DIR, "..", "CHANGELOG.json")
+VERSION_FILE = os.path.join(SCRIPT_DIR, "..", "src", "backend", "version.json")
+CHANGELOG_FILE = os.path.join(SCRIPT_DIR, "..", "src", "backend", "CHANGELOG.json")
 
 
 def load_version():
