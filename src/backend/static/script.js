@@ -87,7 +87,9 @@ async function loadVersion() {
         const data = await res.json();
         const verEl = $('versionDisplay');
         if (verEl) verEl.textContent = data.version || 'v1.0.0';
-    } catch {}
+    } catch (e) {
+        console.error('[ERROR] fetchVersion:', e);
+    }
 }
 
 function showAuthScreen() {
@@ -362,7 +364,9 @@ async function fetchCsrfToken() {
         const res = await fetch('/api/csrf-token', { credentials: 'include' });
         const data = await res.json();
         csrfToken = data.csrf_token || '';
-    } catch {}
+    } catch (e) {
+        console.error('[ERROR] fetchCsrfToken:', e);
+    }
 }
 
 fetchCsrfToken();
@@ -397,7 +401,9 @@ async function loadAgents() {
         if (data.length) agentSelect.value = data[0].id;
         updateAgentHint();
         renderAgentCards(data);
-    } catch {}
+    } catch (e) {
+        console.error('[ERROR] loadAgents:', e);
+    }
 }
 
 function renderAgentCards(agents) {
@@ -530,7 +536,9 @@ async function loadSessions() {
                 deleteSession(e, btn.dataset.sid);
             });
         });
-    } catch {}
+    } catch (e) {
+        console.error('[ERROR] loadSessions:', e);
+    }
 }
 
 function formatTime(iso) {
@@ -624,7 +632,9 @@ async function loadWorlds() {
                 startGame(card.dataset.id);
             });
         });
-    } catch {}
+    } catch (e) {
+        console.error('[ERROR] loadWorlds:', e);
+    }
 }
 
 function renderRatingStars(avg) {
@@ -1501,7 +1511,9 @@ async function renderMySubmissions() {
                 </span>
             </div>
         `).join('');
-    } catch {}
+    } catch (e) {
+        console.error('[ERROR] renderMySubmissions:', e);
+    }
 }
 window.editMySub = async function(id) {
     const subs = await api('/api/rpg/worlds/my-submissions');
@@ -1879,7 +1891,9 @@ async function loadPersonalApiConfig() {
         $('personalApiKey').value = data.api_key || '';
         $('personalApiMsg').textContent = data.has_personal_api ? '✅ 已配置自有 API，当前免费模式' : '';
         updateFreeModeDisplay(data.has_personal_api);
-    } catch {}
+    } catch (e) {
+        console.error('[ERROR] loadPersonalApiConfig:', e);
+    }
 }
 
 window.fillApiUrl = function() {

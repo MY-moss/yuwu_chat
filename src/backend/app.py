@@ -161,6 +161,7 @@ MANDATORY_RPG_FORMAT = """
 histories = {}
 rpg_sessions = {}
 
+_histories_lock = threading.Lock()
 _sessions_lock = threading.Lock()
 _agents_lock = threading.Lock()
 _worlds_lock = threading.Lock()
@@ -893,13 +894,6 @@ def chat():
     credits_per_1k = get_model_price(model)
 
     history_key = f"{current_user.id}_{agent_id}"
-    if history_key not in histories:
-        histories[history_key] = []
-
-    histories[history_key].append({"role": "user", "content": user_message})
-
-    messages = [{"role": "system", "content": agent["system_prompt"]}]
-    messages.extend(histories[history_key][-20:])
 
     try:
         api_key, api_url = get_effective_api(model)
@@ -910,10 +904,17 @@ def chat():
             }
             body = {
                 "model": model,
-                "messages": messages,
+                "messages": [{"role": "system", "content": agent["system_prompt"]}],
                 "temperature": agent.get("temperature", 0.8),
                 "max_tokens": 1024
             }
+            
+            with _histories_lock:
+                if history_key not in histories:
+                    histories[history_key] = []
+                body["messages"].extend([{"role": "user", "content": user_message}])
+                body["messages"].extend(histories[history_key][-19:])
+            
             resp = requests.post(api_url, headers=headers, json=body, timeout=30)
             if resp.status_code != 200:
                 print(f"[ERROR] chat API failed: {resp.status_code}", flush=True)
@@ -922,6 +923,12 @@ def chat():
             reply = result["choices"][0]["message"]["content"]
             total_tokens, _, _ = parse_usage(result)
         else:
+            with _histories_lock:
+                if history_key not in histories:
+                    histories[history_key] = []
+                messages = [{"role": "system", "content": agent["system_prompt"]}]
+                messages.extend([{"role": "user", "content": user_message}])
+                messages.extend(histories[history_key][-19:])
             reply = mock_reply(user_message, agent)
             total_tokens = 0
 
@@ -935,10 +942,15 @@ def chat():
             db.session.commit()
 
         log_usage(current_user.id, current_user.username, model, total_tokens, cost, "chat")
-        histories[history_key].append({"role": "assistant", "content": reply})
+        
+        with _histories_lock:
+            histories[history_key].append({"role": "user", "content": user_message})
+            histories[history_key].append({"role": "assistant", "content": reply})
+            history_length = len(histories[history_key])
+        
         return jsonify({
             "reply": reply,
-            "history_length": len(histories[history_key]),
+            "history_length": history_length,
             "credits_left": current_user.credits,
             "tokens_used": total_tokens,
             "cost": cost,
