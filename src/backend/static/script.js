@@ -1,0 +1,2270 @@
+// ===== State =====
+let currentMode = 'chat';
+let rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
+let currentUser = null;
+let isShared = false;
+
+// ===== Toast =====
+function toast(msg, type) {
+    const c = document.getElementById('toastContainer');
+    if (!c) return;
+    const d = document.createElement('div');
+    d.className = 'toast ' + (type || 'info');
+    d.textContent = msg;
+    c.appendChild(d);
+    setTimeout(() => d.classList.add('show'), 10);
+    setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, 2500);
+}
+
+// ===== Utils =====
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+// ===== DOM Refs =====
+const $ = id => document.getElementById(id);
+const chatBox = $('chatBox');
+const messageInput = $('messageInput');
+const sendBtn = $('sendBtn');
+const agentSelect = $('agentSelect');
+const worldGrid = $('worldGrid');
+const worldSelectScreen = $('worldSelectScreen');
+const gameScreen = $('gameScreen');
+const storyBox = $('storyBox');
+const storyText = $('storyText');
+const choicesArea = $('choicesArea');
+const personalContent = $('personalContent');
+const gameWorldName = $('gameWorldName');
+const gamePlayerName = $('gamePlayerName');
+
+// ===== Loading Overlay =====
+const loadingOverlay = $('loadingOverlay');
+const loadingText = $('loadingText');
+const loadingSub = $('loadingSub');
+
+function showLoading(text, sub) {
+    loadingText.textContent = text || 'AI 正在编织故事...';
+    loadingSub.textContent = sub || '请稍候';
+    loadingOverlay.classList.add('show');
+    const bar = $('loadingBarInner');
+    bar.style.animation = 'none';
+    bar.style.width = '0%';
+    const pct = $('loadingPct');
+    if (pct) pct.textContent = '0%';
+}
+
+function hideLoading() {
+    loadingOverlay.classList.remove('show');
+}
+
+function updateProgress(pct, label) {
+    const bar = $('loadingBarInner');
+    if (bar) bar.style.width = Math.min(100, pct) + '%';
+    const pctEl = $('loadingPct');
+    if (pctEl) pctEl.textContent = (label || Math.round(pct) + '%');
+}
+
+// ===== Auth =====
+async function checkAuth() {
+    try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (data.error) {
+            showAuthScreen();
+            return;
+        }
+        currentUser = data;
+        showMainScreen();
+    } catch {
+        showAuthScreen();
+    }
+}
+
+async function loadVersion() {
+    try {
+        const res = await fetch('/version');
+        const data = await res.json();
+        const verEl = $('versionDisplay');
+        if (verEl) verEl.textContent = data.version || 'v1.0.0';
+    } catch {}
+}
+
+function showAuthScreen() {
+    $('authScreen').style.display = 'flex';
+    $('mainScreen').style.display = 'none';
+}
+
+function showMainScreen() {
+    $('authScreen').style.display = 'none';
+    $('mainScreen').style.display = 'flex';
+    updateUserInfo();
+    populateModels();
+    loadAgents();
+    loadWorlds();
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('.mode-tab[data-mode="chat"]').classList.add('active');
+    currentMode = 'chat';
+    document.getElementById('chatMode').style.display = 'flex';
+    document.getElementById('rpgMode').style.display = 'none';
+}
+
+function updateUserInfo() {
+    if (!currentUser) return;
+    $('creditsDisplay').textContent = `💰 ${currentUser.credits}`;
+    $('usernameDisplay').textContent = currentUser.username;
+    $('adminBtn').style.display = currentUser.role === 'admin' ? 'block' : 'none';
+    if ($('dashboardBtn')) $('dashboardBtn').style.display = currentUser.role === 'admin' ? 'block' : 'none';
+    updateFreeModeDisplay(currentUser.has_personal_api);
+}
+
+async function login() {
+    const username = $('loginUsername').value.trim();
+    const password = $('loginPassword').value.trim();
+    
+    if (!username || !password) {
+        showAuthError('请输入用户名和密码');
+        return;
+    }
+
+    const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+        showAuthError(data.error);
+        return;
+    }
+
+    currentUser = data.user;
+    showMainScreen();
+    showAuthError('');
+}
+
+async function register() {
+    const username = $('regUsername').value.trim();
+    const password = $('regPassword').value.trim();
+    const password2 = $('regPassword2').value.trim();
+
+    if (!username || !password) {
+        showAuthError('请输入用户名和密码');
+        return;
+    }
+    if (password !== password2) {
+        showAuthError('两次输入的密码不一致');
+        return;
+    }
+    if (password.length < 6) {
+        showAuthError('密码长度至少6位');
+        return;
+    }
+
+    const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+
+    if (data.error) {
+        showAuthError(data.error);
+        return;
+    }
+
+    currentUser = data.user;
+    showMainScreen();
+    showAuthError('');
+}
+
+async function logout() {
+    await fetch('/api/auth/logout');
+    currentUser = null;
+    showAuthScreen();
+}
+
+async function changePassword() {
+    const oldPwd = $('oldPassword').value.trim();
+    const newPwd = $('newPassword').value.trim();
+    const newPwd2 = $('newPassword2').value.trim();
+    const msgEl = $('changePwdMsg');
+    
+    if (!oldPwd || !newPwd) {
+        msgEl.textContent = '请输入原密码和新密码';
+        msgEl.style.color = 'var(--accent)';
+        return;
+    }
+    if (newPwd.length < 6) {
+        msgEl.textContent = '新密码长度至少6位';
+        msgEl.style.color = 'var(--accent)';
+        return;
+    }
+    if (newPwd !== newPwd2) {
+        msgEl.textContent = '两次输入的新密码不一致';
+        msgEl.style.color = 'var(--accent)';
+        return;
+    }
+    
+    const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+    });
+    const data = await res.json();
+    
+    if (data.error) {
+        msgEl.textContent = data.error;
+        msgEl.style.color = 'var(--accent)';
+    } else {
+        msgEl.textContent = '密码修改成功！';
+        msgEl.style.color = '#4CAF50';
+        $('oldPassword').value = '';
+        $('newPassword').value = '';
+        $('newPassword2').value = '';
+        setTimeout(() => {
+            $('changePwdModal').classList.remove('show');
+        }, 1500);
+    }
+}
+
+function showAuthError(msg) {
+    $('authError').textContent = msg || '';
+}
+
+// ===== Models =====
+async function populateModels() {
+    const sel = $('modelSelect');
+    if (!sel) return;
+    try {
+        const res = await fetch('/api/models');
+        const models = await res.json();
+        const hasPersonal = currentUser && currentUser.has_personal_api;
+        const standard = models.filter(m => (m.credits_per_1k || 1) > 0);
+        const freeModels = models.filter(m => (m.credits_per_1k || 1) === 0);
+        let html = '';
+        for (const m of standard) {
+            html += `<option value="${escapeHtml(m.model_id)}">${escapeHtml(m.label)} (${m.credits_per_1k}积分/千Token)</option>`;
+        }
+        if (hasPersonal && freeModels.length > 0) {
+            html += '<option disabled>──────────</option>';
+            for (const m of freeModels) {
+                html += `<option value="${escapeHtml(m.model_id)}">${escapeHtml(m.label)} (🆓 需个人API)</option>`;
+            }
+        }
+        sel.innerHTML = html;
+        if (models.length) sel.value = models[0].model_id;
+    } catch {
+        sel.innerHTML = '<option value="mimo-v2.5-free">🎭 Mimo V2.5</option>';
+    }
+}
+
+function getSelectedModel() {
+    return $('modelSelect') ? $('modelSelect').value : 'mimo-v2.5-free';
+}
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', () => {
+    checkAuth();
+    setupEventListeners();
+    loadVersion();
+});
+
+function setupEventListeners() {
+    // Auth
+    document.querySelectorAll('.auth-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const mode = tab.dataset.mode;
+            $('loginForm').style.display = mode === 'login' ? 'block' : 'none';
+            $('registerForm').style.display = mode === 'register' ? 'block' : 'none';
+        });
+    });
+
+    $('loginBtn').addEventListener('click', login);
+    $('registerBtn').addEventListener('click', register);
+    $('logoutBtn').addEventListener('click', logout);
+    
+    $('changePwdBtn').addEventListener('click', () => {
+        $('changePwdModal').classList.add('show');
+        $('changePwdMsg').textContent = '';
+    });
+    $('changePwdClose').addEventListener('click', () => {
+        $('changePwdModal').classList.remove('show');
+    });
+    $('changePwdModal').addEventListener('click', e => {
+        if (e.target === $('changePwdModal')) $('changePwdModal').classList.remove('show');
+    });
+    $('changePwdSubmit').addEventListener('click', changePassword);
+
+    // Mode Tabs
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            hideLoading();
+            document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            currentMode = tab.dataset.mode;
+            
+            const chatModeEl = document.getElementById('chatMode');
+            const rpgModeEl = document.getElementById('rpgMode');
+            
+            if (currentMode === 'chat') {
+                chatModeEl.style.display = 'flex';
+                rpgModeEl.style.display = 'none';
+            } else if (currentMode === 'rpg') {
+                chatModeEl.style.display = 'none';
+                rpgModeEl.style.display = 'flex';
+                if (rpgState.sessionId) {
+                    gameScreen.style.display = 'flex';
+                    worldSelectScreen.style.display = 'none';
+                } else {
+                    gameScreen.style.display = 'none';
+                    worldSelectScreen.style.display = 'block';
+                }
+            }
+        });
+    });
+
+    // Font Size Buttons
+    document.querySelectorAll('.font-size-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const size = btn.dataset.size;
+            document.body.classList.remove('font-small', 'font-normal', 'font-large');
+            document.body.classList.add(`font-${size}`);
+        });
+    });
+
+    // Panel Toggle Buttons
+    document.querySelectorAll('.panel-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const panel = btn.dataset.panel;
+            const panelEl = document.getElementById(panel);
+            if (panelEl) {
+                panelEl.classList.toggle('collapsed');
+            }
+        });
+    });
+
+    // Dashboard Button
+    $('dashboardBtn')?.addEventListener('click', () => {
+        window.open('/dashboard', '_blank');
+    });
+}
+
+// ===== API Helpers =====
+async function api(url, opts = {}) {
+    const res = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        ...opts
+    });
+    const data = await res.json();
+    if (data.error === '未登录') {
+        currentUser = null;
+        showAuthScreen();
+        throw new Error('未登录');
+    }
+    return data;
+}
+
+// ===== Chat =====
+async function loadAgents() {
+    try {
+        const data = await api('/api/agents');
+        agentSelect.innerHTML = data.map(a =>
+            `<option value="${escapeHtml(a.id)}">${escapeHtml(a.avatar || '🧔')} ${escapeHtml(a.name)} ${a.title ? '— ' + escapeHtml(a.title) : ''}</option>`
+        ).join('');
+        if (data.length) agentSelect.value = data[0].id;
+        updateAgentHint();
+        renderAgentCards(data);
+    } catch {}
+}
+
+function renderAgentCards(agents) {
+    const cardSelector = $('agentCardSelector');
+    if (!cardSelector) return;
+    
+    cardSelector.innerHTML = agents.map((a, index) => `
+        <div class="agent-card ${index === 0 ? 'active' : ''}" data-agent-id="${escapeHtml(a.id)}">
+            <div class="agent-avatar">${escapeHtml(a.avatar || '🧔')}</div>
+            <div class="agent-name">${escapeHtml(a.name)}</div>
+            ${a.title ? `<div class="agent-title">${escapeHtml(a.title)}</div>` : ''}
+        </div>
+    `).join('');
+    
+    document.querySelectorAll('.agent-card').forEach(card => {
+        card.addEventListener('click', () => selectAgent(card.dataset.agentId));
+    });
+}
+
+window.selectAgent = function(id) {
+    agentSelect.value = id;
+    document.querySelectorAll('.agent-card').forEach(card => {
+        card.classList.remove('active');
+        if (card.dataset.agentId === id) card.classList.add('active');
+    });
+    updateAgentHint();
+}
+
+function updateAgentHint() {
+    const sel = agentSelect.selectedOptions[0];
+    $('agentHint').textContent = sel ? `当前：${sel.textContent}` : '请选择一位角色聊聊';
+}
+
+agentSelect.addEventListener('change', updateAgentHint);
+
+sendBtn.addEventListener('click', sendMessage);
+messageInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+
+async function sendMessage() {
+    const msg = messageInput.value.trim();
+    if (!msg) return;
+    const agentId = agentSelect.value;
+    messageInput.value = '';
+    appendMessage(msg, 'user');
+    sendBtn.disabled = true;
+    sendBtn.textContent = '⏳ 思考中...';
+    try {
+        const data = await api('/api/chat', {
+            method: 'POST',
+            body: JSON.stringify({ message: msg, agent_id: agentId, model: getSelectedModel() })
+        });
+        if (data.error) {
+            if (data.error === '积分不足') {
+                alert('积分不足，请联系管理员充值');
+            } else {
+                appendMessage('❌ ' + data.error, 'agent');
+            }
+        } else {
+            appendMessage(data.reply || '（没有回应）', 'agent');
+            if (data.credits_left !== undefined) {
+                currentUser.credits = data.credits_left;
+                updateUserInfo();
+            }
+        }
+    } finally {
+        sendBtn.disabled = false;
+        sendBtn.innerHTML = '<span class="btn-icon">🍺</span> 来一杯';
+    }
+}
+
+function appendMessage(text, role, name) {
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    if (role === 'agent' && name) {
+        const nm = document.createElement('div');
+        nm.className = 'msg-name';
+        nm.textContent = name;
+        div.appendChild(nm);
+    }
+    const content = document.createElement('div');
+    content.className = 'md-body';
+    if (role === 'agent') {
+        content.innerHTML = renderMarkdown(text);
+    } else {
+        content.textContent = text;
+    }
+    div.appendChild(content);
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// ===== Sessions =====
+async function loadSessions() {
+    try {
+        const [sessions, activeData] = await Promise.all([
+            api('/api/rpg/sessions'),
+            api('/api/rpg/active-count').catch(() => ({ total: 0 }))
+        ]);
+        // Show total active count across all users
+        $('sessionsCount').textContent = activeData.total;
+        if (sessions.length === 0) {
+            $('sessionsEmpty').style.display = 'block';
+            $('sessionsList').innerHTML = '';
+            return;
+        }
+        $('sessionsEmpty').style.display = 'none';
+        $('sessionsList').innerHTML = sessions.map(s => {
+            const active = rpgState.sessionId === s.session_id;
+            const time = formatTime(s.last_active);
+            return `
+                <div class="session-card ${active ? 'active current' : ''}" data-sid="${escapeHtml(s.session_id)}">
+                    <div class="sc-emoji">${escapeHtml(s.world_emoji)}</div>
+                    <div class="sc-info">
+                        <div class="sc-name">${escapeHtml(s.world_name)}</div>
+                        <div class="sc-meta">🧑 ${escapeHtml(s.player_name)} · ${s.rounds}轮 · ${time}</div>
+                    </div>
+                    <div class="sc-actions">
+                        <button class="sc-delete" data-sid="${escapeHtml(s.session_id)}" title="删除记录">🗑️</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        document.querySelectorAll('.session-card').forEach(card => {
+            card.addEventListener('click', () => resumeGame(card.dataset.sid));
+        });
+        document.querySelectorAll('.sc-delete').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteSession(e, btn.dataset.sid);
+            });
+        });
+    } catch {}
+}
+
+function formatTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return Math.floor(diff/60000) + '分钟前';
+    if (diff < 86400000) return Math.floor(diff/3600000) + '小时前';
+    return d.toLocaleDateString('zh-CN');
+}
+
+window.deleteSession = async function(e, sid) {
+    e.stopPropagation();
+    if (!confirm('确定删除这个跑团记录？数据不可恢复。')) return;
+    await api(`/api/rpg/session/${sid}`, { method: 'DELETE' });
+    if (rpgState.sessionId === sid) {
+        rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
+        gameScreen.style.display = 'none';
+        worldSelectScreen.style.display = 'block';
+        if (shareBtn) shareBtn.style.display = 'none';
+    }
+    loadSessions();
+};
+
+async function resumeGame(sessionId) {
+    const data = await api(`/api/rpg/session/${sessionId}`);
+    if (data.error) return;
+    showLoading('🔄 恢复游戏中...', data.player_name);
+    worldSelectScreen.style.display = 'none';
+    gameScreen.style.display = 'flex';
+    personalContent.innerHTML = '<div class="status-empty">恢复中...</div>';
+
+    rpgState.sessionId = sessionId;
+    rpgState.playerName = data.player_name;
+    rpgState.world = { id: data.world_id, emoji: '📖', name: '加载中...' };
+    try {
+        const worlds = await api('/api/rpg/worlds');
+        const w = worlds.find(x => x.id === data.world_id);
+        if (w) rpgState.world = w;
+    } catch(e) {}
+    gameWorldName.textContent = `${rpgState.world.emoji} ${rpgState.world.name}`;
+    gamePlayerName.textContent = `🧑 ${data.player_name}`;
+    $('gameRound').textContent = `第${Math.max(1, data.storyline ? data.storyline.length : 0)}轮`;
+
+    hideLoading();
+    renderStory(data.last_story || '');
+    renderStatus(data.sections || data.last_state || '');
+    renderChoices(data.last_story || '');
+    rpgState.storyline = data.storyline || [];
+    renderStoryline();
+    renderRelationships(data.relationships);
+    // Sync share button state
+    isShared = !!data.share_token;
+    if (shareBtn) {
+        shareBtn.style.display = 'block';
+        shareBtn.textContent = isShared ? '🔓 取消分享' : '🔗 分享';
+    }
+}
+
+$('sessionsBarHeader').addEventListener('click', () => {
+    $('sessionsBody').classList.toggle('collapsed');
+    $('sessionsToggle').classList.toggle('collapsed');
+});
+
+// ===== Worlds =====
+async function loadWorlds() {
+    loadSessions();
+    try {
+        const worlds = await api('/api/rpg/worlds');
+        worldGrid.innerHTML = worlds.map(w => {
+            const ratingHtml = renderRatingStars(w.avg_rating || 0);
+            return `
+            <div class="world-card" data-id="${escapeHtml(w.id)}">
+                <div class="wc-emoji">${escapeHtml(w.emoji || '📖')}</div>
+                <div class="wc-name">${escapeHtml(w.name)}</div>
+                <div class="wc-genre">${escapeHtml(w.genre || '')}</div>
+                <div class="wc-desc">${escapeHtml(w.desc || '')}</div>
+                <div class="wc-rating">
+                    <span class="wc-stars">${ratingHtml}</span>
+                    <span class="wc-rating-text">${w.avg_rating || '-'} (${w.rating_count || 0}评)</span>
+                    <button class="wc-rate-btn" data-wid="${escapeHtml(w.id)}" onclick="openRateWorld(event, '${escapeHtml(w.id)}')">⭐ 评价</button>
+                </div>
+            </div>
+            `;
+        }).join('');
+        document.querySelectorAll('.world-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('.wc-rate-btn')) return;
+                startGame(card.dataset.id);
+            });
+        });
+    } catch {}
+}
+
+function renderRatingStars(avg) {
+    const full = Math.round(avg);
+    let html = '';
+    for (let i = 1; i <= 5; i++) {
+        if (i <= full) html += '<span class="rating-star full">★</span>';
+        else html += '<span class="rating-star">☆</span>';
+    }
+    return html;
+}
+
+// ===== World Rating =====
+window.openRateWorld = async function(e, worldId) {
+    e.stopPropagation();
+    const ratings = await api(`/api/rpg/worlds/${worldId}/ratings`).catch(() => []);
+    const myRating = ratings.find(r => r.user_id === (currentUser?.id || 0));
+    let existingModal = $('rateWorldModal');
+    if (existingModal) existingModal.remove();
+    currentPickedRating = 0;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay show';
+    modal.id = 'rateWorldModal';
+    modal.innerHTML = `
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <span>⭐ 评价世界书</span>
+                <button class="modal-close" onclick="closeRateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="rate-my-section">
+                    <div class="form-group"><label>你的评分</label>
+                        <div class="rate-star-picker">${[1,2,3,4,5].map(n =>
+                            `<span class="rate-pick-star" data-r="${n}" onclick="pickRating(${n})">☆</span>`
+                        ).join('')}</div>
+                    </div>
+                    <div class="form-group"><label>你的评价（可选）</label>
+                        <textarea id="rateReview" rows="3" placeholder="写下你对这个世界的感受...">${escapeHtml(myRating?.review || '')}</textarea>
+                    </div>
+                    <button class="btn-add" onclick="submitRating('${worldId}')">提交评价</button>
+                </div>
+                <div class="rate-history-section">
+                    <div class="rate-history-title">📝 玩家评价 (${ratings.length})</div>
+                    <div class="rate-history-list">
+                        ${ratings.length === 0 ? '<div class="status-empty">暂无评价，来做第一个评价的人吧！</div>' :
+                        ratings.slice().reverse().map(r => `
+                            <div class="rate-history-item">
+                                <div class="rhi-header">
+                                    <span class="rhi-user">👤 ${escapeHtml(r.username)}</span>
+                                    <span class="rhi-stars">${renderRatingStars(r.rating)}</span>
+                                    <span class="rhi-time">${formatTime(r.created_at || r.updated_at)}</span>
+                                </div>
+                                ${r.review ? `<div class="rhi-review">${escapeHtml(r.review)}</div>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    if (myRating) {
+        currentPickedRating = myRating.rating;
+        updatePickStars(myRating.rating);
+    }
+    modal.addEventListener('click', e => { if (e.target === modal) closeRateModal(); });
+};
+
+let currentPickedRating = 0;
+
+window.pickRating = function(r) {
+    currentPickedRating = r;
+    updatePickStars(r);
+};
+
+function updatePickStars(r) {
+    document.querySelectorAll('.rate-pick-star').forEach(s => {
+        const sr = parseInt(s.dataset.r);
+        s.textContent = sr <= r ? '★' : '☆';
+        s.classList.toggle('picked', sr <= r);
+    });
+}
+
+window.closeRateModal = function() {
+    const modal = $('rateWorldModal');
+    if (modal) modal.remove();
+    currentPickedRating = 0;
+};
+
+window.submitRating = async function(worldId) {
+    if (currentPickedRating < 1 || currentPickedRating > 5) {
+        alert('请选择1-5星评分');
+        return;
+    }
+    const review = ($('rateReview')?.value || '').trim();
+    const res = await api(`/api/rpg/worlds/${worldId}/ratings`, {
+        method: 'POST',
+        body: JSON.stringify({ rating: currentPickedRating, review })
+    });
+    if (res.error) { alert(res.error); return; }
+    closeRateModal();
+    loadWorlds();
+};
+
+// ===== RPG Game =====
+async function startGame(worldId) {
+    let name = prompt('请输入你的角色名：', '旅人') || '旅人';
+    name = name.trim().replace(/[<>"'&]/g, '');
+    if (!name) name = '旅人';
+    worldSelectScreen.style.display = 'none';
+    gameScreen.style.display = 'flex';
+    personalContent.innerHTML = '<div class="status-empty">故事载入中...</div>';
+    storyText.textContent = '';
+    choicesArea.innerHTML = '';
+
+    showLoading('📖 世界正在苏醒...', 'AI 主持人正在构建初始场景');
+
+    const data = await api('/api/rpg/start', {
+        method: 'POST',
+        body: JSON.stringify({ world_id: worldId, player_name: name, model: getSelectedModel() })
+    });
+
+    if (data.error) {
+        hideLoading();
+        if (data.error === '积分不足') {
+            alert('积分不足，请联系管理员充值');
+            worldSelectScreen.style.display = 'block';
+            gameScreen.style.display = 'none';
+        } else {
+            storyText.textContent = '❌ ' + data.error;
+        }
+        return;
+    }
+
+    rpgState.sessionId = data.session_id;
+    rpgState.world = data.world;
+    rpgState.playerName = data.player_name;
+    rpgState.storyline = data.storyline || [];
+    rpgState.sections = data.sections || null;
+    gameWorldName.textContent = `${data.world.emoji} ${data.world.name}`;
+    gamePlayerName.textContent = `🧑 ${data.player_name}`;
+    $('gameRound').textContent = `第${Math.max(1, data.storyline ? data.storyline.length : 0)}轮`;
+    if (shareBtn) { shareBtn.style.display = 'block'; shareBtn.textContent = '🔗 分享'; isShared = false; }
+
+    if (data.credits_left !== undefined) {
+        currentUser.credits = data.credits_left;
+        updateUserInfo();
+    }
+
+    hideLoading();
+    renderStory(data.story);
+    renderStatus(data.sections || data.state || '');
+    renderChoices(data.story);
+    renderStoryline();
+    renderRelationships(data.relationships);
+    if (shareBtn) shareBtn.style.display = 'block';
+}
+
+async function actGame(choice) {
+    if (!rpgState.sessionId) return;
+    showLoading('🎭 故事继续展开...', '');
+
+    try {
+        const resp = await fetch('/api/rpg/act/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ session_id: rpgState.sessionId, choice, model: getSelectedModel() })
+        });
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let buffer = '', full = '', startTime = Date.now();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += dec.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const json = JSON.parse(line.slice(6));
+                if (json.type === 'chunk') {
+                    full += json.text;
+                    storyText.innerHTML = renderMarkdown(full);
+                    storyBox.scrollTop = storyBox.scrollHeight;
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                    const estTotal = 800;
+                    const pct = Math.min(95, full.length / estTotal * 100);
+                    updateProgress(pct, Math.round(pct) + '% · ' + full.length + '字');
+                    $('loadingSub').textContent = '⏱ ' + elapsed + 's';
+                } else if (json.type === 'done') {
+                    updateProgress(100, '100%');
+                    if (json.credits_left !== undefined) {
+                        currentUser.credits = json.credits_left;
+                        updateUserInfo();
+                    }
+                    rpgState.storyline = json.storyline || rpgState.storyline || [];
+                    rpgState.sections = json.sections || null;
+                    storyText.innerHTML = renderMarkdown(json.story || full);
+                    renderStatus(json.sections || json.state || '');
+                    renderChoices(json.story || full);
+                    renderStoryline();
+                    renderRelationships(json.relationships);
+                    $('gameRound').textContent = `第${Math.max(1, (rpgState.storyline || []).length + 1)}轮`;
+                } else if (json.type === 'error') {
+                    hideLoading();
+                    storyText.textContent = '❌ ' + json.text;
+                }
+            }
+        }
+        // If stream ended without 'done' event, try to process accumulated text
+        if (full) {
+            hideLoading();
+            storyText.innerHTML = renderMarkdown(full);
+            // Generate choices from the text
+            renderChoices(full);
+            renderStoryline();
+        } else if (!document.querySelector('.loading-overlay.show')) {
+            hideLoading();
+        }
+    } catch (e) {
+        hideLoading();
+        // Fallback to non-streaming
+        storyText.textContent = '⏳ 流式连接失败，使用普通模式...';
+        const data = await api('/api/rpg/act', {
+            method: 'POST',
+            body: JSON.stringify({ session_id: rpgState.sessionId, choice, model: getSelectedModel() })
+        });
+        hideLoading();
+        if (data.error) {
+            if (data.error === '积分不足') { alert('积分不足'); return; }
+            storyText.textContent = '❌ ' + data.error; return;
+        }
+        if (data.credits_left !== undefined) { currentUser.credits = data.credits_left; updateUserInfo(); }
+        rpgState.storyline = data.storyline || [];
+        rpgState.sections = data.sections || null;
+        storyText.innerHTML = renderMarkdown(data.story || '');
+        renderStatus(data.sections || data.state || '');
+        renderChoices(data.story || '');
+        renderStoryline();
+        renderRelationships(data.relationships);
+        $('gameRound').textContent = `第${Math.max(1, rpgState.storyline.length)}轮`;
+    }
+}
+
+// ===== Markdown Rendering =====
+function renderMarkdown(text) {
+    if (!text) return '';
+    const raw = String(text);
+    try {
+        if (typeof marked !== 'undefined') {
+            marked.setOptions({ breaks: true, gfm: true });
+            const html = marked.parse(raw);
+            if (typeof DOMPurify !== 'undefined') {
+                return DOMPurify.sanitize(html);
+            }
+            return escapeHtml(html);
+        }
+    } catch (e) { /* fall through */ }
+    // Fallback: basic HTML escape
+    return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+}
+
+// Lightweight plain-text cleanup for status values and short snippets (NOT for story text)
+function cleanText(t) {
+    return String(t || '')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/[ \t]+/g, ' ')
+        .trim();
+}
+
+function renderStory(text) {
+    storyText.innerHTML = renderMarkdown(text);
+    storyBox.scrollTop = 0;
+}
+
+// ===== Personal Panel Rendering =====
+// Narrative section keys — these contain long text, NOT shown in sidebar
+const NARRATIVE_KEYS = new Set([
+    '背景', '简介', '外貌', '外貌描述', '描述', '性格', '性格特点',
+    '故事概要', '过往', '回忆', '内心独白', '世界观', '阵营', '信仰',
+    '关系', '关系网', '关系_map', '剧情', '剧情摘要', '任务详情', '日志',
+    '事件', '事件记录', '备注', '说明', '提示', '介绍', '剧情回顾'
+]);
+
+// Data section keys — these contain stats/numbers to show compactly
+const DATA_KEYS = new Set([
+    '状态', '属性', '技能', '能力', '天赋', '专长', '特质',
+    '装备', '背包', '物品', '道具', '武器', '防具', '金钱', '资源',
+    '任务', '进度', '成就', '称号', '法术', '招式', '绝技', '判定'
+]);
+
+// Split a value into data pairs (key:value) and discard narrative tail
+function extractDataPairs(rawValue) {
+    const parts = rawValue.split(/\s+/);
+    const pairs = [];
+    let inData = true;
+    for (const part of parts) {
+        if (inData && part.includes(':')) {
+            const colonIdx = part.indexOf(':');
+            const label = part.slice(0, colonIdx);
+            const value = part.slice(colonIdx + 1);
+            // Stop collecting if label is clearly narrative (long, no shorthand)
+            if (label.length > 8) { inData = false; continue; }
+            pairs.push({ label: label, value: value });
+        } else if (part.length < 3 || part.match(/^[0-9+\-*/%]+$/)) {
+            // Short tokens or pure numbers after data pairs — likely still data
+            continue;
+        } else {
+            // Sentence-like text → end of data region
+            inData = false;
+        }
+    }
+    return pairs;
+}
+
+// Check if a value string contains Markdown formatting
+function hasMarkdownFormatting(str) {
+    return /[*_`#\[\]~>|]/.test(str) && str.length > 6;
+}
+
+function renderKeyDataSection(key, cleanedValue) {
+    const pairs = extractDataPairs(cleanedValue);
+    if (pairs.length === 0) return '';
+
+    let rowHtml = pairs.map(p => {
+        let { label, value } = p;
+        let cls = 'status-value';
+        const num = parseFloat(value);
+        if (!isNaN(num)) {
+            cls += num <= 20 ? ' danger' : num >= 80 ? ' success' : ' highlight';
+        }
+        const renderedValue = hasMarkdownFormatting(value) ? renderMarkdown(value) : escapeHtml(value);
+        const hpLabels = ['HP', '生命', '血量', '体力', '精力', '生命值', 'hp', 'Hp'];
+        if (!isNaN(num) && hpLabels.includes(label)) {
+            const pct = Math.min(100, Math.max(0, num));
+            return '<div class="status-item status-bar-row">' +
+                '<span class="status-label">'+escapeHtml(label)+'</span>' +
+                '<span class="'+cls+'">'+renderedValue+'</span>' +
+                '<div class="status-bar-track"><div class="status-bar-fill" style="width:'+pct+'%;background:'+(pct<=30?'var(--accent)':pct<=60?'var(--gold-dim)':'var(--gold)')+'"></div></div>' +
+                '</div>';
+        }
+        return '<div class="status-item"><span class="status-label">'+escapeHtml(label)+'</span><span class="'+cls+' md-inline">'+renderedValue+'</span></div>';
+    }).join('');
+    return '<div class="status-section"><div class="status-section-title">'+escapeHtml(key)+'</div>'+rowHtml+'</div>';
+}
+
+function renderStatus(sectionsOrText) {
+    if (!sectionsOrText) { personalContent.innerHTML = '<div class="status-empty">暂无状态数据</div>'; return; }
+    if (typeof sectionsOrText === 'object' && !Array.isArray(sectionsOrText)) {
+        let html = '';
+        for (const [key, val] of Object.entries(sectionsOrText)) {
+            if (key === '关系_map' || typeof val === 'object') continue;
+            if (NARRATIVE_KEYS.has(key)) continue;
+            const cleaned = cleanText(val);
+            if (DATA_KEYS.has(key)) {
+                html += renderKeyDataSection(escapeHtml(key), cleaned);
+            } else if (cleaned.length < 60 && cleaned.includes(':')) {
+                html += renderKeyDataSection(escapeHtml(key), cleaned);
+            }
+        }
+        personalContent.innerHTML = html || '<div class="status-empty">暂无关键数据</div>';
+        return;
+    }
+    let clean = String(sectionsOrText).replace(/【[^】]*】/g, '').trim();
+    const items = clean.split(/\s+/).filter(s => s.includes(':'));
+    if (items.length === 0) { personalContent.innerHTML = '<div class="status-empty">'+escapeHtml(clean)+'</div>'; return; }
+    personalContent.innerHTML = items.map(i => {
+        let n = i.indexOf(':'), label = i.slice(0,n).trim(), value = i.slice(n+1).trim(), cls = 'status-value';
+        const num = parseFloat(value);
+        if (!isNaN(num)) cls += num <= 20 ? ' danger' : num >= 80 ? ' success' : ' highlight';
+        const rendVal = hasMarkdownFormatting(value) ? renderMarkdown(value) : escapeHtml(value);
+        return '<div class="status-item"><span class="status-label">'+escapeHtml(label)+'</span><span class="'+cls+' md-inline">'+rendVal+'</span></div>';
+    }).join('');
+}
+
+function parseStatusValue(val) {
+    if (!val || !val.trim()) return '<div class="status-empty" style="padding:4px 0;">空</div>';
+    const cleaned = cleanText(val);
+    const items = cleaned.split(/\s+/).filter(s => s.includes(':'));
+    if (!items.length) return '<div class="status-item"><span class="status-value md-inline">'+renderMarkdown(cleaned)+'</span></div>';
+    return items.map(i => {
+        let n = i.indexOf(':'), label = i.slice(0,n).trim(), value = i.slice(n+1).trim(), cls = 'status-value';
+        const num = parseFloat(value);
+        if (!isNaN(num)) cls += num <= 20 ? ' danger' : num >= 80 ? ' success' : ' highlight';
+        const rendVal = hasMarkdownFormatting(value) ? renderMarkdown(value) : escapeHtml(value);
+        return '<div class="status-item"><span class="status-label">'+escapeHtml(label)+'</span><span class="'+cls+' md-inline">'+rendVal+'</span></div>';
+    }).join('');
+}
+
+function renderChoices(storyText) {
+    choicesArea.innerHTML = '';
+    if (!storyText) return;
+
+    const text = String(storyText);
+
+    // Check for 【判定】 - skill check challenge
+    const sections = rpgState.sections || {};
+    const judgement = sections['判定'];
+    if (judgement) {
+        const diffMatch = judgement.match(/难度[：:]\s*(\d+)/);
+        const attrMatch = judgement.match(/属性[：:]\s*(\S+)/);
+        const difficulty = diffMatch ? parseInt(diffMatch[1]) : 15;
+        const attribute = attrMatch ? attrMatch[1] : '未知';
+        const attrValue = getAttrValue(attribute);
+        const modifier = calculateModifier(attrValue);
+        const modStr = modifier >= 0 ? '+' + modifier : String(modifier);
+        const realDifficulty = calculateRealDifficulty(difficulty, sections);
+
+        const card = document.createElement('div');
+        card.className = 'judgement-card';
+        card.innerHTML = '<div class="judge-header">⚔️ 检定挑战</div>' +
+            '<div class="judge-info-row">' +
+                '<div class="judge-info"><span>属性</span><span>'+attribute+(attrValue!==null?' <small style="color:var(--text-dim)">('+attrValue+')</small>':'')+'</span></div>' +
+                '<div class="judge-info"><span>修正</span><span class="'+(modifier>=0?'judge-mod-pos':'judge-mod-neg')+'">'+modStr+'</span></div>' +
+            '</div>' +
+            '<div class="judge-info-row">' +
+                '<div class="judge-info"><span>基础难度</span><span>'+difficulty+'</span></div>' +
+                '<div class="judge-info"><span>实际难度</span><span class="judge-diff">'+realDifficulty+'</span></div>' +
+            '</div>' +
+            '<div class="judge-desc">'+escapeHtml(judgement.slice(0, 200))+'</div>' +
+            '<div class="judge-result" id="judgeResult" style="display:none;"></div>' +
+            '<button class="judge-roll-btn" onclick="doSkillCheck('+difficulty+','+realDifficulty+','+modifier+',\''+attribute+'\')">🎲 投掷 d20</button>';
+        choicesArea.appendChild(card);
+    }
+
+    // Find all 【数字】 patterns, only keep those near end of text
+    const allMatches = [];
+    const re = /【(\d+)】([^【\n]*)/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        allMatches.push({ num: m[1], text: m[2].trim(), pos: m.index });
+    }
+
+    // Keep only choices near the end (within last 300 chars), max 6
+    const choices = allMatches.length > 2
+        ? allMatches.filter(c => text.length - c.pos < 300).slice(-6)
+        : allMatches;
+
+    if (choices.length === 0) {
+        const btn = document.createElement('button');
+        btn.className = 'choice-btn';
+        btn.textContent = '▶ 继续';
+        btn.addEventListener('click', () => actGame('继续'));
+        choicesArea.appendChild(btn);
+        addCustomInput();
+        return;
+    }
+
+    for (const c of choices) {
+        const btn = document.createElement('button');
+        btn.className = 'choice-btn';
+        btn.textContent = `${c.num}. ${c.text}`;
+        btn.addEventListener('click', () => actGame(c.text));
+        choicesArea.appendChild(btn);
+    }
+
+    addCustomInput();
+}
+
+// ===== Dice Skill Check System =====
+// Extract attribute value from sections (search 属性, 状态, 技能)
+function getAttrValue(attrName) {
+    const sections = rpgState.sections || {};
+    const candidates = ['属性', '状态', '技能', '能力'];
+    for (const key of candidates) {
+        const val = sections[key];
+        if (!val) continue;
+        const re = new RegExp(attrName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[：:]\\s*(\\d+)', 'i');
+        const m = cleanText(val).match(re);
+        if (m) return parseInt(m[1]);
+    }
+    return null;
+}
+
+// Calculate modifier: value - 5 (attributes scale 1-10, 5 is average)
+function calculateModifier(attrValue) {
+    if (attrValue === null) return 0;
+    return Math.max(-4, Math.min(5, attrValue - 5));
+}
+
+// Calculate real difficulty considering situation
+function calculateRealDifficulty(baseDiff, sections) {
+    let realDiff = baseDiff;
+    const status = cleanText(sections['状态'] || '');
+    const events = cleanText(sections['事件'] || '');
+
+    // Injuries reduce effectiveness → raise difficulty
+    const injuryMatch = status.match(/受伤|重伤|虚弱|中毒|诅咒|恐惧|混乱/);
+    if (injuryMatch) realDiff += 2;
+
+    // Favorable conditions → lower difficulty
+    const buffMatch = status.match(/鼓舞|激励|专注|强化|祝福|潜行/);
+    if (buffMatch) realDiff -= 2;
+
+    // Environmental factors from events
+    const envHard = events.match(/困难|危险|陷阱|伏击|暴风雨|黑暗/);
+    if (envHard) realDiff += 2;
+    const envEasy = events.match(/轻松|安全|休息|明亮|支援|熟悉/);
+    if (envEasy) realDiff -= 2;
+
+    return Math.max(5, Math.min(30, realDiff));
+}
+
+function doSkillCheck(baseDifficulty, realDifficulty, modifier, attribute) {
+    const btn = document.querySelector('.judge-roll-btn');
+    if (btn) btn.disabled = true;
+    const resultEl = document.getElementById('judgeResult');
+    if (!resultEl) return;
+    resultEl.style.display = 'block';
+    resultEl.className = 'judge-result';
+    resultEl.innerHTML = '<span class="judge-rolling">🎲 投掷中...</span>';
+
+    setTimeout(() => {
+        const roll = Math.floor(Math.random() * 20) + 1;
+        const total = roll + modifier;
+        const success = total >= realDifficulty;
+
+        let breakdown = '📊 检定明细<br>';
+        breakdown += '▸ d20 掷出: ' + roll + '<br>';
+        breakdown += '▸ ' + attribute + '修正: ' + (modifier >= 0 ? '+' : '') + modifier + '<br>';
+        breakdown += '▸ 总结果: ' + total + ' (vs ' + realDifficulty + ')<br>';
+        if (baseDifficulty !== realDifficulty) {
+            breakdown += '▸ 局势调整: ' + (realDifficulty > baseDifficulty ? '+' : '') + (realDifficulty - baseDifficulty) + '<br>';
+        }
+        breakdown += '<br>' + (success ? '✅ 检定成功！' : '❌ 检定失败！');
+
+        resultEl.className = 'judge-result ' + (success ? 'judge-success' : 'judge-fail');
+        resultEl.innerHTML = breakdown;
+
+        let resultText;
+        if (roll === 20) {
+            resultText = '大成功！请描述极为顺利的发展。';
+        } else if (roll === 1) {
+            resultText = '大失败！请描述严重的失败后果，但仍继续推进故事。';
+        } else if (success) {
+            resultText = '成功。请描述检定通过后的顺利发展。';
+        } else {
+            resultText = '失败。请描述检定未通过后的发展和后果，故事继续进行。';
+        }
+
+        actGame('我进行' + attribute + '检定：掷出d20=' + roll + '（修正' + (modifier >= 0 ? '+' : '') + modifier + '=' + total + '，难度' + realDifficulty + '），' + resultText);
+    }, 500);
+}
+
+function addCustomInput() {
+    const wrap = document.createElement('div');
+    wrap.className = 'custom-action-wrap';
+
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.placeholder = '✏️ 自定义行动...';
+    inp.className = 'custom-action-input';
+
+    const btn = document.createElement('button');
+    btn.className = 'custom-action-go';
+    btn.textContent = '行动';
+    btn.disabled = true;
+
+    inp.addEventListener('input', () => { btn.disabled = !inp.value.trim(); });
+    inp.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && inp.value.trim()) {
+            actGame(inp.value.trim());
+            inp.value = '';
+            btn.disabled = true;
+        }
+    });
+    btn.addEventListener('click', () => {
+        if (inp.value.trim()) {
+            actGame(inp.value.trim());
+            inp.value = '';
+            btn.disabled = true;
+        }
+    });
+
+    wrap.appendChild(inp);
+    wrap.appendChild(btn);
+    choicesArea.appendChild(wrap);
+}
+
+// ===== Storyline =====
+function renderStoryline() {
+    const body = $('storylineBody');
+    const sl = rpgState.storyline || [];
+    if (!body) return;
+    if (sl.length === 0) {
+        body.innerHTML = '<div class="status-empty" style="padding:12px 0;">尚无历史记录</div>';
+        return;
+    }
+    body.innerHTML = sl.map((entry, i) => {
+        const isCurrent = i === sl.length - 1;
+        return `
+        <div class="sl-entry ${isCurrent ? 'current' : ''}" data-round="${entry.round}">
+            <div class="sl-round">#${entry.round}</div>
+            <div class="sl-content">
+                <div class="sl-choice"><span class="sl-choice-tag">▸</span>${escapeHtml(cleanText(entry.choice))}</div>
+                <div class="sl-story">${escapeHtml(cleanText((entry.story || '').slice(0, 50)))}</div>
+            </div>
+            <div class="sl-actions">
+                <button class="sl-review" onclick="reviewRound(${entry.round})" title="查看完整故事">📖</button>
+                ${!isCurrent ? `<button class="sl-jump" onclick="jumpToRound(${entry.round})" title="回退到此轮">↩</button>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+window.reviewRound = function(round) {
+    const sl = rpgState.storyline || [];
+    const entry = sl.find(e => e.round === round);
+    if (!entry) return;
+    const storyText = entry.story || '（无故事记录）';
+    const isCurrent = round === (sl.length > 0 ? sl[sl.length - 1].round : -1);
+
+    $('reviewContent').innerHTML = renderMarkdown(storyText);
+    $('reviewTitle').textContent = `第 ${round} 轮 · ${cleanText((entry.choice || '').slice(0, 50))}${isCurrent ? '（当前）' : ''}`;
+    $('reviewModal').style.display = 'flex';
+};
+
+$('reviewClose').addEventListener('click', () => {
+    $('reviewModal').style.display = 'none';
+});
+
+$('reviewModal').addEventListener('click', (e) => {
+    if (e.target === $('reviewModal')) $('reviewModal').style.display = 'none';
+});
+
+window.jumpToRound = async function(round) {
+    if (!rpgState.sessionId) return;
+    if (!confirm(`确定回到第 ${round} 轮？之后的选择将被清空。`)) return;
+    showLoading('⏳ 回溯中...', `回到第 ${round} 轮`);
+    const data = await api(`/api/rpg/session/${rpgState.sessionId}/branch`, {
+        method: 'POST',
+        body: JSON.stringify({ round })
+    });
+    hideLoading();
+    if (data.error) { alert(data.error); return; }
+    rpgState.storyline = data.storyline || [];
+    renderStory(data.last_story || '');
+    renderStatus(data.sections || data.last_state || '');
+    renderChoices(data.last_story || '');
+    renderStoryline();
+    renderRelationships(data.relationships);
+};
+
+$('storylineHeader').addEventListener('click', () => {
+    const body = $('storylineBody');
+    const toggle = $('storylineToggle');
+    body.classList.toggle('collapsed');
+    toggle.classList.toggle('collapsed');
+});
+
+function renderRelationships(rels) {
+    const body = $('relsBody');
+    if (!body) return;
+    if (!rels || Object.keys(rels).length === 0) {
+        body.innerHTML = '<div class="status-empty" style="padding:12px 0;">暂无关系数据</div>';
+        return;
+    }
+    body.innerHTML = Object.entries(rels).map(([k, v]) =>
+        `<div class="status-item"><span class="status-label">${escapeHtml(k)}</span><span class="status-value highlight">${escapeHtml(v)}</span></div>`
+    ).join('');
+}
+
+$('exitGameBtn').addEventListener('click', () => {
+    hideLoading();
+    rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
+    gameScreen.style.display = 'none';
+    worldSelectScreen.style.display = 'block';
+    loadSessions();
+    if (shareBtn) shareBtn.style.display = 'none';
+});
+
+// ===== Agent Management =====
+const manageBtn = $('manageBtn');
+const manageModal = $('manageModal');
+const modalClose = $('modalClose');
+
+manageBtn.addEventListener('click', () => { manageModal.classList.add('show'); renderAgentList(); });
+modalClose.addEventListener('click', () => manageModal.classList.remove('show'));
+manageModal.addEventListener('click', e => { if (e.target === manageModal) manageModal.classList.remove('show'); });
+
+async function renderAgentList() {
+    const agents = await api('/api/agents');
+    $('agentList').innerHTML = agents.map(a => `
+        <div class="agent-list-item">
+            <span class="ali-emoji">${escapeHtml(a.avatar || '🧔')}</span>
+            <span class="ali-name"><strong>${escapeHtml(a.name)}</strong> ${a.title ? '<small style="color:var(--text-dim)">— ' + escapeHtml(a.title) + '</small>' : ''}</span>
+            <span class="ali-actions">
+                <button class="btn-edit" data-aid="${escapeHtml(a.id)}">✏️</button>
+                <button class="btn-del" data-aid="${escapeHtml(a.id)}">🗑️</button>
+            </span>
+        </div>`).join('');
+    
+    document.querySelectorAll('.btn-edit').forEach(btn => {
+        btn.addEventListener('click', () => editAgent(btn.dataset.aid));
+    });
+    document.querySelectorAll('.btn-del').forEach(btn => {
+        btn.addEventListener('click', () => deleteAgent(btn.dataset.aid));
+    });
+}
+
+window.deleteAgent = async function(id) {
+    if (!confirm('确定要删除这个智能体吗？')) return;
+    await api('/api/agents/' + id, { method: 'DELETE' });
+    renderAgentList();
+    loadAgents();
+};
+
+const editorModal = $('editorModal');
+const editorClose = $('editorClose');
+let editingAgentId = null;
+
+window.editAgent = async function(id) {
+    editingAgentId = id;
+    const agents = await api('/api/agents');
+    const a = agents.find(x => x.id === id);
+    if (!a) return;
+    $('editorTitle').textContent = '✏️ 编辑智能体';
+    $('editId').value = a.id; $('editId').disabled = true;
+    $('editName').value = a.name;
+    $('editAvatar').value = a.avatar || '🧔';
+    $('editTitle').value = a.title || '';
+    $('editModel').value = a.model || 'mimo-v2.5-free';
+    $('editTemp').value = a.temperature || 0.8;
+    $('editGreeting').value = a.greeting || '';
+    $('editPrompt').value = a.system_prompt || '';
+    editorModal.classList.add('show');
+};
+
+$('addAgentBtn').addEventListener('click', () => {
+    editingAgentId = null;
+    $('editorTitle').textContent = '➕ 新建智能体';
+    ['editId','editName','editAvatar','editTitle','editGreeting','editPrompt'].forEach(id => $(id).value = '');
+    $('editAvatar').value = '🧔';
+    $('editModel').value = 'mimo-v2.5-free';
+    $('editTemp').value = 0.85;
+    $('editId').disabled = false;
+    editorModal.classList.add('show');
+});
+
+$('editorClose').addEventListener('click', () => editorModal.classList.remove('show'));
+$('editorCancel').addEventListener('click', () => editorModal.classList.remove('show'));
+editorModal.addEventListener('click', e => { if (e.target === editorModal) editorModal.classList.remove('show'); });
+
+$('editorSave').addEventListener('click', async () => {
+    const data = {
+        id: $('editId').value.trim(),
+        name: $('editName').value.trim(),
+        avatar: $('editAvatar').value.trim() || '🧔',
+        title: $('editTitle').value.trim(),
+        model: $('editModel').value.trim() || 'mimo-v2.5-free',
+        temperature: parseFloat($('editTemp').value) || 0.85,
+        greeting: $('editGreeting').value.trim(),
+        system_prompt: $('editPrompt').value.trim()
+    };
+    if (!data.id || !data.name) { alert('ID和名称不能为空'); return; }
+    if (editingAgentId) {
+        await api('/api/agents/' + editingAgentId, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    } else {
+        const res = await api('/api/agents', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        if (res.error) { alert(res.error); return; }
+    }
+    editorModal.classList.remove('show');
+    renderAgentList();
+    loadAgents();
+});
+
+// ===== World Management =====
+const manageWorldBtn = $('manageWorldBtn');
+const worldManageModal = $('worldManageModal');
+const worldManageClose = $('worldManageClose');
+
+manageWorldBtn.addEventListener('click', () => {
+    worldManageModal.classList.add('show');
+    renderWorldList();
+    renderMySubmissions();
+});
+worldManageClose.addEventListener('click', () => worldManageModal.classList.remove('show'));
+worldManageModal.addEventListener('click', e => { if (e.target === worldManageModal) worldManageModal.classList.remove('show'); });
+
+async function renderWorldList() {
+    const worlds = await api('/api/rpg/worlds');
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    $('worldManageGrid').innerHTML = worlds.map((w, i) => `
+        <div class="world-list-item" data-wid="${escapeHtml(w.id)}">
+            ${isAdmin ? `<span class="wli-order">
+                <button class="btn-order-up" data-wid="${escapeHtml(w.id)}" ${i === 0 ? 'disabled' : ''}>▲</button>
+                <button class="btn-order-down" data-wid="${escapeHtml(w.id)}" ${i === worlds.length - 1 ? 'disabled' : ''}>▼</button>
+            </span>` : ''}
+            <span style="font-size:22px;">${escapeHtml(w.emoji || '📖')}</span>
+            <span style="flex:1;"><strong>${escapeHtml(w.name)}</strong> <small style="color:var(--text-dim)">${escapeHtml(w.genre || '')}</small></span>
+            ${isAdmin ? `<span class="ali-actions">
+                <button class="btn-edit-w" data-wid="${escapeHtml(w.id)}">✏️</button>
+                <button class="btn-del-w" data-wid="${escapeHtml(w.id)}">🗑️</button>
+            </span>` : ''}
+        </div>`).join('');
+    
+    if (isAdmin) {
+        document.querySelectorAll('.btn-order-up').forEach(btn => {
+            btn.addEventListener('click', () => moveWorldUp(btn.dataset.wid));
+        });
+        document.querySelectorAll('.btn-order-down').forEach(btn => {
+            btn.addEventListener('click', () => moveWorldDown(btn.dataset.wid));
+        });
+        document.querySelectorAll('.btn-edit-w').forEach(btn => {
+            btn.addEventListener('click', () => editWorld(btn.dataset.wid));
+        });
+        document.querySelectorAll('.btn-del-w').forEach(btn => {
+            btn.addEventListener('click', () => deleteWorld(btn.dataset.wid));
+        });
+    }
+}
+
+window.moveWorldUp = async function(worldId) {
+    const worlds = await api('/api/rpg/worlds');
+    const idx = worlds.findIndex(w => w.id === worldId);
+    if (idx <= 0) return;
+    [worlds[idx - 1], worlds[idx]] = [worlds[idx], worlds[idx - 1]];
+    worlds.forEach((w, i) => { w.order = i; });
+    await api('/api/rpg/worlds', { method: 'POST', body: JSON.stringify(worlds) });
+    renderWorldList();
+    loadWorlds();
+};
+
+window.moveWorldDown = async function(worldId) {
+    const worlds = await api('/api/rpg/worlds');
+    const idx = worlds.findIndex(w => w.id === worldId);
+    if (idx < 0 || idx >= worlds.length - 1) return;
+    [worlds[idx], worlds[idx + 1]] = [worlds[idx + 1], worlds[idx]];
+    worlds.forEach((w, i) => { w.order = i; });
+    await api('/api/rpg/worlds', { method: 'POST', body: JSON.stringify(worlds) });
+    renderWorldList();
+    loadWorlds();
+};
+
+window.deleteWorld = async function(id) {
+    if (!confirm('确定要删除这个世界书吗？')) return;
+    const worlds = await api('/api/rpg/worlds');
+    const filtered = worlds.filter(w => w.id !== id);
+    await api('/api/rpg/worlds', {
+        method: 'POST',
+        body: JSON.stringify(filtered)
+    });
+    renderWorldList();
+    loadWorlds();
+    if (rpgState.world && rpgState.world.id === id) {
+        rpgState = { sessionId: null, world: null, playerName: '' };
+        gameScreen.style.display = 'none';
+        worldSelectScreen.style.display = 'block';
+    }
+};
+
+async function renderMySubmissions() {
+    try {
+        const subs = await api('/api/rpg/worlds/my-submissions');
+        $('mySubsCount').textContent = subs.length > 0 ? `(${subs.length}个待审核)` : '(无)';
+        if (subs.length === 0) { $('mySubmissionsList').innerHTML = '<div class="status-empty" style="padding:4px 0;">暂无投稿</div>'; return; }
+        $('mySubmissionsList').innerHTML = subs.map(s => `
+            <div class="world-list-item">
+                <span style="font-size:22px;">${escapeHtml(s.emoji || '📖')}</span>
+                <span style="flex:1;"><strong>${escapeHtml(s.name)}</strong><br><small style="color:var(--text-dim)">状态：${s.status === 'pending' ? '⏳ 待审核' : '❌ 已拒绝'}</small></span>
+                <span class="ali-actions">
+                    <button onclick="editMySub('${escapeHtml(s.id)}')">✏️</button>
+                    <button class="del" onclick="delMySub('${escapeHtml(s.id)}')">🗑️</button>
+                </span>
+            </div>
+        `).join('');
+    } catch {}
+}
+window.editMySub = async function(id) {
+    const subs = await api('/api/rpg/worlds/my-submissions');
+    const s = subs.find(x => x.id === id); if (!s) return;
+    $('sEditId').value = s.id; $('sEditId').disabled = true;
+    $('sEditName').value = s.name || ''; $('sEditEmoji').value = s.emoji || '🌟';
+    $('sEditGenre').value = s.genre || ''; $('sEditDesc').value = s.desc || '';
+    $('sEditPrompt').value = s.system_prompt || ''; $('sEditTemp').value = s.temperature || 0.85;
+    $('sEditMaxTokens').value = s.max_tokens || 700;
+    window._editingSubId = id;
+    submitWorldModal.classList.add('show');
+};
+window.delMySub = async function(id) {
+    if (!confirm('确定删除这个投稿？')) return;
+    await api(`/api/rpg/worlds/submissions/${id}`, { method: 'DELETE' });
+    renderMySubmissions();
+};
+
+const worldEditorModal = $('worldEditorModal');
+const worldEditorClose = $('worldEditorClose');
+let editingWorldId = null;
+
+window.editWorld = async function(id) {
+    editingWorldId = id;
+    const worlds = await api('/api/rpg/worlds');
+    const w = worlds.find(x => x.id === id);
+    if (!w) return;
+    $('worldEditorTitle').textContent = '✏️ 编辑世界书';
+    $('wEditName').value = w.name || '';
+    $('wEditId').value = w.id || '';
+    $('wEditEmoji').value = w.emoji || '📖';
+    $('wEditGenre').value = w.genre || '';
+    $('wEditDesc').value = w.desc || '';
+    $('wEditPrompt').value = w.system_prompt || '';
+    $('wEditTemp').value = w.temperature || 0.85;
+    $('wEditMaxTokens').value = w.max_tokens || 700;
+    $('wEditId').disabled = true;
+    worldEditorModal.classList.add('show');
+};
+
+$('addWorldBtn').addEventListener('click', () => {
+    editingWorldId = null;
+    $('worldEditorTitle').textContent = '📖 新建世界书';
+    ['wEditName','wEditId','wEditDesc','wEditPrompt'].forEach(id => $(id).value = '');
+    $('wEditEmoji').value = '🌟';
+    $('wEditGenre').value = '';
+    $('wEditTemp').value = 0.85;
+    $('wEditMaxTokens').value = 700;
+    $('wEditId').disabled = false;
+    worldEditorModal.classList.add('show');
+});
+
+$('worldEditorClose').addEventListener('click', () => worldEditorModal.classList.remove('show'));
+$('worldEditorCancel').addEventListener('click', () => worldEditorModal.classList.remove('show'));
+worldEditorModal.addEventListener('click', e => { if (e.target === worldEditorModal) worldEditorModal.classList.remove('show'); });
+
+$('worldEditorSave').addEventListener('click', async () => {
+    const id = $('wEditId').value.trim();
+    const name = $('wEditName').value.trim();
+    if (!id || !name) { alert('ID和名称不能为空'); return; }
+    const world = {
+        id,
+        name,
+        emoji: $('wEditEmoji').value.trim() || '📖',
+        genre: $('wEditGenre').value.trim(),
+        desc: $('wEditDesc').value.trim(),
+        system_prompt: $('wEditPrompt').value.trim(),
+        temperature: parseFloat($('wEditTemp').value) || 0.85,
+        max_tokens: parseInt($('wEditMaxTokens').value) || 700
+    };
+    let worlds = await api('/api/rpg/worlds');
+    if (editingWorldId) {
+        const idx = worlds.findIndex(w => w.id === editingWorldId);
+        if (idx >= 0) worlds[idx] = world;
+    } else {
+        if (worlds.some(w => w.id === id)) { alert('该ID已存在'); return; }
+        worlds.push(world);
+    }
+    await api('/api/rpg/worlds', {
+        method: 'POST',
+        body: JSON.stringify(worlds)
+    });
+    worldEditorModal.classList.remove('show');
+    renderWorldList();
+    loadWorlds();
+});
+
+// ===== Admin Panel =====
+const adminBtn = $('adminBtn');
+const adminModal = $('adminModal');
+const adminClose = $('adminClose');
+const adminCancel = $('adminCancel');
+
+adminBtn.addEventListener('click', () => {
+    adminModal.classList.add('show');
+    loadAdminModels();
+    loadAdminUsers();
+    loadAdminKeys();
+});
+adminClose.addEventListener('click', () => adminModal.classList.remove('show'));
+adminCancel.addEventListener('click', () => adminModal.classList.remove('show'));
+adminModal.addEventListener('click', e => { if (e.target === adminModal) adminModal.classList.remove('show'); });
+
+document.querySelectorAll('.admin-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        const panel = tab.dataset.panel;
+        $('adminModelsPanel').style.display = panel === 'models' ? 'block' : 'none';
+        $('adminApiConfigPanel').style.display = panel === 'apiconfig' ? 'block' : 'none';
+        $('adminUsersPanel').style.display = panel === 'users' ? 'block' : 'none';
+        $('adminCreditKeysPanel').style.display = panel === 'creditkeys' ? 'block' : 'none';
+        $('adminStatsPanel').style.display = panel === 'stats' ? 'block' : 'none';
+        $('adminSubmissionsPanel').style.display = panel === 'submissions' ? 'block' : 'none';
+        $('adminAllSessionsPanel').style.display = panel === 'allsessions' ? 'block' : 'none';
+        if (panel === 'stats') loadAdminStats();
+        if (panel === 'submissions') loadAdminSubmissions();
+        if (panel === 'allsessions') loadAdminAllSessions();
+        if (panel === 'apiconfig') loadAdminApiConfig();
+    });
+});
+
+// Admin API Config
+async function loadAdminApiConfig() {
+    const data = await api('/api/admin/api-config');
+    $('adminApiKey').value = data.configs?.API_KEY?.value || '';
+    $('adminApiUrl').value = data.configs?.API_URL?.value || '';
+    renderApiPriority(data.configs || {});
+}
+
+function renderApiPriority(configs) {
+    const entries = Object.entries(configs).map(([key, value]) => ({
+        key_name: key,
+        value: value.value,
+        priority: value.priority || 0
+    })).sort((a, b) => b.priority - a.priority);
+    
+    $('adminApiPriorityList').innerHTML = entries.map((cfg, index) => `
+        <div class="admin-list-item">
+            <div class="ali-main">
+                <div class="ali-name">${escapeHtml(cfg.key_name)}</div>
+                <div class="ali-meta">优先级: ${cfg.priority}</div>
+            </div>
+            <div class="ali-actions">
+                <button class="btn-pri-up" data-key="${escapeHtml(cfg.key_name)}" data-pri="${cfg.priority}">▲ 提升</button>
+                <button class="btn-pri-down" data-key="${escapeHtml(cfg.key_name)}" data-pri="${cfg.priority}">▼ 降低</button>
+            </div>
+        </div>
+    `).join('') || '<div class="status-empty">暂无API配置</div>';
+    
+    document.querySelectorAll('.btn-pri-up').forEach(btn => {
+        btn.addEventListener('click', () => changeApiPriority(btn.dataset.key, parseInt(btn.dataset.pri) + 1));
+    });
+    document.querySelectorAll('.btn-pri-down').forEach(btn => {
+        btn.addEventListener('click', () => changeApiPriority(btn.dataset.key, parseInt(btn.dataset.pri) - 1));
+    });
+}
+
+async function changeApiPriority(keyName, priority) {
+    await api('/api/admin/api-config/priority', {
+        method: 'PUT',
+        body: JSON.stringify({ key_name: keyName, priority })
+    });
+    loadAdminApiConfig();
+}
+
+$('saveAdminApiBtn').addEventListener('click', async () => {
+    const apiKey = $('adminApiKey').value.trim();
+    const apiUrl = $('adminApiUrl').value.trim();
+    await api('/api/admin/api-config', {
+        method: 'PUT',
+        body: JSON.stringify({ api_key: apiKey, api_url: apiUrl })
+    });
+    toast('API配置已保存', 'success');
+    loadAdminApiConfig();
+});
+
+// Admin Models
+async function loadAdminModels() {
+    const models = await api('/api/admin/models');
+    $('adminModelsList').innerHTML = models.map(m => `
+        <div class="admin-list-item">
+            <div class="ali-main">
+                <div class="ali-name">${escapeHtml(m.label)}</div>
+                <div class="ali-meta">ID: ${escapeHtml(m.model_id)} | ${m.credits_per_1k}积分/千Token | 优先级: ${m.priority} | ${m.enabled ? '✅ 启用' : '❌ 禁用'}${m.api_base ? ' | 🔗 自定义API' : ''}</div>
+            </div>
+            <div class="ali-actions">
+                <button onclick="editAdminModel(${m.id})">✏️</button>
+                <button class="del" onclick="deleteAdminModel(${m.id})">🗑️</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+const modelEditorModal = $('modelEditorModal');
+const modelEditorClose = $('modelEditorClose');
+let editingModelId = null;
+
+$('addModelBtn').addEventListener('click', () => {
+    editingModelId = null;
+    $('modelEditorTitle').textContent = '➕ 添加模型';
+    ['mEditModelId','mEditName','mEditLabel','mEditApiBase','mEditApiKey'].forEach(id => $(id).value = '');
+    $('mEditCreditsPer1k').value = '1';
+    $('mEditPriority').value = '100';
+    $('mEditEnabled').checked = true;
+    modelEditorModal.classList.add('show');
+});
+
+window.editAdminModel = async function(id) {
+    editingModelId = id;
+    const models = await api('/api/admin/models');
+    const m = models.find(x => x.id === id);
+    if (!m) return;
+    $('modelEditorTitle').textContent = '✏️ 编辑模型';
+    $('mEditModelId').value = m.model_id;
+    $('mEditName').value = m.name;
+    $('mEditLabel').value = m.label;
+    $('mEditCreditsPer1k').value = m.credits_per_1k || m.price_per_call || 1;
+    $('mEditPriority').value = m.priority || 100;
+    $('mEditApiBase').value = m.api_base || '';
+    $('mEditApiKey').value = m.api_key || '';
+    $('mEditEnabled').checked = m.enabled;
+    modelEditorModal.classList.add('show');
+};
+
+$('modelEditorClose').addEventListener('click', () => modelEditorModal.classList.remove('show'));
+$('modelEditorCancel').addEventListener('click', () => modelEditorModal.classList.remove('show'));
+modelEditorModal.addEventListener('click', e => { if (e.target === modelEditorModal) modelEditorModal.classList.remove('show'); });
+
+$('modelEditorSave').addEventListener('click', async () => {
+    const data = {
+        model_id: $('mEditModelId').value.trim(),
+        name: $('mEditName').value.trim(),
+        label: $('mEditLabel').value.trim(),
+        credits_per_1k: parseInt($('mEditCreditsPer1k').value) || 1,
+        priority: parseInt($('mEditPriority').value) || 100,
+        enabled: $('mEditEnabled').checked,
+        api_base: $('mEditApiBase').value.trim(),
+        api_key: $('mEditApiKey').value.trim()
+    };
+    if (!data.model_id || !data.name || !data.label) {
+        alert('model_id、名称和标签不能为空');
+        return;
+    }
+
+    if (editingModelId) {
+        await api(`/api/admin/models/${editingModelId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    } else {
+        const res = await api('/api/admin/models', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        if (res.error) { alert(res.error); return; }
+    }
+
+    modelEditorModal.classList.remove('show');
+    loadAdminModels();
+    populateModels();
+});
+
+window.deleteAdminModel = async function(id) {
+    if (!confirm('确定要删除这个模型吗？')) return;
+    await api(`/api/admin/models/${id}`, { method: 'DELETE' });
+    loadAdminModels();
+    populateModels();
+};
+
+// Admin Users
+async function loadAdminUsers() {
+    const users = await api('/api/admin/users');
+    $('adminUsersList').innerHTML = users.map(u => `
+        <div class="admin-list-item">
+            <div class="ali-main">
+                <div class="ali-name">${escapeHtml(u.username)} ${u.role === 'admin' ? '(管理员)' : ''}</div>
+                <div class="ali-meta">ID: ${u.id} | 积分: ${u.credits} | 注册: ${new Date(u.created_at).toLocaleDateString()}</div>
+            </div>
+            <div class="ali-actions">
+                <button class="btn-edit-u" data-uid="${u.id}">💰</button>
+                <button class="btn-del-u" data-uid="${u.id}">🗑️</button>
+            </div>
+        </div>
+    `).join('');
+    
+    document.querySelectorAll('.btn-edit-u').forEach(btn => {
+        btn.addEventListener('click', () => editAdminUser(parseInt(btn.dataset.uid)));
+    });
+    document.querySelectorAll('.btn-del-u').forEach(btn => {
+        btn.addEventListener('click', () => deleteAdminUser(parseInt(btn.dataset.uid)));
+    });
+}
+
+window.editAdminUser = async function(id) {
+    const users = await api('/api/admin/users');
+    const u = users.find(x => x.id === id);
+    if (!u) return;
+    const newCredits = prompt(`为 ${u.username} 设置新积分：`, u.credits);
+    if (newCredits === null) return;
+    const credits = parseInt(newCredits);
+    if (isNaN(credits) || credits < 0) {
+        alert('请输入有效的积分数量');
+        return;
+    }
+    await api(`/api/admin/users/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ credits })
+    });
+    loadAdminUsers();
+};
+
+window.deleteAdminUser = async function(id) {
+    if (!confirm('确定要删除这个用户吗？')) return;
+    await api(`/api/admin/users/${id}`, { method: 'DELETE' });
+    loadAdminUsers();
+};
+
+// ===== Credit Keys (Admin) =====
+async function loadAdminKeys() {
+    const keys = await api('/api/admin/credit-keys');
+    $('adminKeysList').innerHTML = keys.map(k => `
+        <div class="key-list-item">
+            <span class="key-code">${escapeHtml(k.key)}</span>
+            <span class="key-info">
+                <div>💰 ${k.credits} 积分</div>
+                <div class="key-meta">
+                    ${k.used
+                        ? `<span class="key-used">✅ 已使用 (用户ID: ${k.used_by})</span>`
+                        : `<span class="key-unused">🔓 未使用</span>`}
+                    · ${new Date(k.created_at).toLocaleDateString()}
+                </div>
+            </span>
+            ${!k.used ? `<span class="ali-actions"><button class="del" onclick="deleteKey(${k.id})">🗑️</button></span>` : ''}
+        </div>
+    `).join('');
+}
+
+$('genKeyBtn').addEventListener('click', async () => {
+    const credits = parseInt($('keyCredits').value) || 100;
+    const count = parseInt($('keyCount').value) || 1;
+    const data = await api('/api/admin/credit-keys', {
+        method: 'POST',
+        body: JSON.stringify({ credits, count })
+    });
+    if (data.error) { alert(data.error); return; }
+    const keysText = data.keys.join('\n');
+    alert(`已生成 ${data.count} 个 ${data.credits} 积分密钥：\n\n${keysText}\n\n请复制并分发给用户`);
+    loadAdminKeys();
+});
+
+window.deleteKey = async function(id) {
+    if (!confirm('确定要删除这个未使用的密钥吗？')) return;
+    await api(`/api/admin/credit-keys/${id}`, { method: 'DELETE' });
+    loadAdminKeys();
+};
+
+// ===== Personal API Settings =====
+const apiSettingsBtn = $('apiSettingBtn');
+const apiSettingsModal = $('apiSettingsModal');
+const apiSettingsClose = $('apiSettingsClose');
+
+apiSettingsBtn.addEventListener('click', async () => {
+    await loadPersonalApiConfig();
+    apiSettingsModal.classList.add('show');
+});
+apiSettingsClose.addEventListener('click', () => apiSettingsModal.classList.remove('show'));
+apiSettingsModal.addEventListener('click', e => { if (e.target === apiSettingsModal) apiSettingsModal.classList.remove('show'); });
+
+async function loadPersonalApiConfig() {
+    try {
+        const res = await fetch('/api/auth/api-config');
+        const data = await res.json();
+        $('personalApiUrl').value = data.api_base || '';
+        $('personalApiKey').value = data.api_key || '';
+        $('personalApiMsg').textContent = data.has_personal_api ? '✅ 已配置自有 API，当前免费模式' : '';
+        updateFreeModeDisplay(data.has_personal_api);
+    } catch {}
+}
+
+window.fillApiUrl = function() {
+    const provider = $('personalApiProvider').value;
+    const urls = {
+        siliconflow: 'https://api.siliconflow.cn/v1/chat/completions'
+    };
+    if (urls[provider]) {
+        $('personalApiUrl').value = urls[provider];
+    }
+}
+
+$('savePersonalApiBtn').addEventListener('click', async () => {
+    const api_base = $('personalApiUrl').value.trim();
+    const api_key = $('personalApiKey').value.trim();
+    if (!api_base || !api_key) {
+        $('personalApiMsg').textContent = '❌ 请填写 API 地址和 Key';
+        return;
+    }
+    $('savePersonalApiBtn').disabled = true;
+    $('personalApiMsg').textContent = '⏳ 保存中...';
+    try {
+        const data = await api('/api/auth/api-config', {
+            method: 'PUT',
+            body: JSON.stringify({ api_base, api_key })
+        });
+        if (data.status === 'ok') {
+            $('personalApiMsg').textContent = '✅ 保存成功！现在使用你的个人 API，不计积分';
+            currentUser.has_personal_api = true;
+            updateFreeModeDisplay(true);
+            updateUserInfo();
+            populateModels();
+        }
+    } catch { $('personalApiMsg').textContent = '❌ 保存失败'; }
+    $('savePersonalApiBtn').disabled = false;
+});
+
+$('clearPersonalApiBtn').addEventListener('click', async () => {
+    if (!confirm('确定清除自有 API 配置？之后将恢复计费模式。')) return;
+    const data = await api('/api/auth/api-config', {
+        method: 'PUT',
+        body: JSON.stringify({ api_base: '', api_key: '' })
+    });
+    if (data.status === 'ok') {
+        $('personalApiUrl').value = '';
+        $('personalApiKey').value = '';
+        $('personalApiMsg').textContent = '✅ 已清除，恢复计费模式';
+        currentUser.has_personal_api = false;
+        updateFreeModeDisplay(false);
+        populateModels();
+    }
+});
+
+function updateFreeModeDisplay(hasApi) {
+    const display = $('freeModeDisplay');
+    if (display) display.style.display = hasApi ? 'inline' : 'none';
+}
+
+// ===== Redeem (User) =====
+const redeemBtn = $('redeemBtn');
+const redeemModal = $('redeemModal');
+const redeemClose = $('redeemClose');
+
+redeemBtn.addEventListener('click', () => {
+    $('redeemCode').value = '';
+    $('redeemMsg').textContent = '';
+    redeemModal.classList.add('show');
+});
+redeemClose.addEventListener('click', () => redeemModal.classList.remove('show'));
+redeemModal.addEventListener('click', e => { if (e.target === redeemModal) redeemModal.classList.remove('show'); });
+
+$('redeemSubmitBtn').addEventListener('click', async () => {
+    const code = $('redeemCode').value.trim().toUpperCase();
+    if (!code) { $('redeemMsg').textContent = '❌ 请输入密钥'; return; }
+    $('redeemSubmitBtn').disabled = true;
+    $('redeemMsg').textContent = '⏳ 兑换中...';
+    try {
+        const data = await api('/api/redeem', {
+            method: 'POST',
+            body: JSON.stringify({ key: code })
+        });
+        if (data.error) {
+            $('redeemMsg').textContent = '❌ ' + data.error;
+        } else {
+            $('redeemMsg').textContent = '✅ ' + data.message;
+            currentUser.credits = data.credits_left;
+            updateUserInfo();
+        }
+    } catch {
+        $('redeemMsg').textContent = '❌ 兑换失败';
+    }
+    $('redeemSubmitBtn').disabled = false;
+});
+
+$('redeemCode').addEventListener('keydown', e => {
+    if (e.key === 'Enter') $('redeemSubmitBtn').click();
+});
+
+// ===== World Submission =====
+const submitWorldBtn = $('submitWorldBtn');
+const submitWorldModal = $('submitWorldModal');
+const submitWorldClose = $('submitWorldClose');
+
+submitWorldBtn.addEventListener('click', () => {
+    window._editingSubId = null;
+    $('sEditId').disabled = false;
+    ['sEditId','sEditName','sEditDesc','sEditPrompt'].forEach(id => $(id).value = '');
+    $('sEditEmoji').value = '🌟';
+    submitWorldModal.classList.add('show');
+});
+submitWorldClose.addEventListener('click', () => {
+    window._editingSubId = null;
+    $('sEditId').disabled = false;
+    submitWorldModal.classList.remove('show');
+});
+submitWorldModal.addEventListener('click', e => { if (e.target === submitWorldModal) submitWorldModal.classList.remove('show'); });
+
+$('submitWorldSaveBtn').addEventListener('click', async () => {
+    const data = {
+        name: $('sEditName').value.trim(),
+        emoji: $('sEditEmoji').value.trim() || '📖',
+        genre: $('sEditGenre').value.trim(),
+        desc: $('sEditDesc').value.trim(),
+        system_prompt: $('sEditPrompt').value.trim(),
+        temperature: parseFloat($('sEditTemp').value) || 0.85,
+        max_tokens: parseInt($('sEditMaxTokens').value) || 700
+    };
+    const editingId = window._editingSubId;
+    if (!editingId && !$('sEditId').value.trim()) { alert('ID不能为空'); return; }
+    if (!data.name) { alert('名称不能为空'); return; }
+    let res;
+    if (editingId) {
+        res = await api(`/api/rpg/worlds/submissions/${editingId}`, { method: 'PUT', body: JSON.stringify(data) });
+    } else {
+        data.id = $('sEditId').value.trim();
+        res = await api('/api/rpg/worlds/submit', { method: 'POST', body: JSON.stringify(data) });
+    }
+    if (res.error) { alert(res.error); return; }
+    alert('✅ ' + (res.message || '操作成功'));
+    submitWorldModal.classList.remove('show');
+    ['sEditId','sEditName','sEditDesc','sEditPrompt'].forEach(id => $(id).value = '');
+    $('sEditEmoji').value = '🌟';
+    $('sEditId').disabled = false;
+    window._editingSubId = null;
+    renderMySubmissions();
+});
+
+$('addMySubBtn').addEventListener('click', () => {
+    worldManageModal.classList.remove('show');
+    submitWorldBtn.click();
+});
+
+// ===== Admin Stats =====
+async function loadAdminStats() {
+    try {
+        const stats = await api('/api/admin/stats');
+        let html = `<div class="stats-summary">
+            <div class="stat-card"><div class="stat-num">${stats.total_calls}</div><div class="stat-label">总调用次数</div></div>
+            <div class="stat-card"><div class="stat-num">${stats.total_tokens}</div><div class="stat-label">总Token消耗</div></div>
+            <div class="stat-card"><div class="stat-num">${stats.total_cost}</div><div class="stat-label">总消耗积分</div></div>
+            <div class="stat-card"><div class="stat-num">${stats.active_sessions}</div><div class="stat-label">当前活跃跑团</div></div>
+        </div>`;
+        html += '<div class="stats-section"><div class="admin-panel-header">👥 用户消费排行</div>';
+        const users = Object.entries(stats.users || {}).sort((a,b) => b[1].cost - a[1].cost);
+        html += users.map(u => `<div class="stats-user"><span>${escapeHtml(u[0])}</span><span>${u[1].calls}次 · ${u[1].tokens}Token · 💰${u[1].cost}积分</span></div>`).join('');
+        html += '</div>';
+        html += '<div class="stats-section"><div class="admin-panel-header">🤖 模型使用排行</div>';
+        Object.entries(stats.models || {}).sort((a,b) => b[1].calls - a[1].calls).forEach(m => {
+            html += `<div class="stats-user"><span>${escapeHtml(m[0])}</span><span>${m[1].calls}次 · ${m[1].tokens}Token</span></div>`;
+        });
+        html += '</div>';
+        if (stats.sessions_detail && stats.sessions_detail.length) {
+            html += '<div class="stats-section"><div class="admin-panel-header">🏃 当前活跃会话</div>';
+            stats.sessions_detail.slice(0,10).forEach(s => {
+                html += `<div class="stats-user"><span>${escapeHtml(s.player)} · ${escapeHtml(s.world)}</span><span>${s.rounds}轮</span></div>`;
+            });
+            html += '</div>';
+        }
+        $('adminStatsContent').innerHTML = html;
+    } catch { $('adminStatsContent').innerHTML = '<div class="status-empty">加载失败</div>'; }
+}
+
+// ===== Admin Submissions =====
+async function loadAdminSubmissions() {
+    const subs = await api('/api/rpg/worlds/submissions');
+    $('adminSubmissionsList').innerHTML = subs.length === 0
+        ? '<div class="status-empty">暂无待审核投稿</div>'
+        : subs.map(s => `
+            <div class="world-list-item">
+                <span style="font-size:22px;">${escapeHtml(s.emoji || '📖')}</span>
+                <span style="flex:1;"><strong>${escapeHtml(s.name)}</strong><br><small style="color:var(--text-dim)">👤 ${escapeHtml(s.submitter)} · ${escapeHtml(s.genre || '')}</small></span>
+                <span class="ali-actions">
+                    <button class="btn-approve-s" data-sid="${escapeHtml(s.id)}">✅ 通过</button>
+                    <button class="btn-reject-s" data-sid="${escapeHtml(s.id)}">❌ 拒绝</button>
+                </span>
+            </div>
+        `).join('');
+    
+    document.querySelectorAll('.btn-approve-s').forEach(btn => {
+        btn.addEventListener('click', () => approveSub(btn.dataset.sid));
+    });
+    document.querySelectorAll('.btn-reject-s').forEach(btn => {
+        btn.addEventListener('click', () => rejectSub(btn.dataset.sid));
+    });
+}
+
+window.approveSub = async function(id) {
+    if (!confirm('通过后将上架到世界书列表，确认？')) return;
+    await api(`/api/rpg/worlds/submissions/${id}`, { method: 'POST', body: JSON.stringify({ action: 'approve' }) });
+    loadAdminSubmissions();
+};
+
+window.rejectSub = async function(id) {
+    if (!confirm('拒绝后将删除此投稿，确认？')) return;
+    await api(`/api/rpg/worlds/submissions/${id}`, { method: 'POST', body: JSON.stringify({ action: 'reject' }) });
+    loadAdminSubmissions();
+};
+
+// ===== Admin: All Sessions =====
+async function loadAdminAllSessions() {
+    try {
+        const sessions = await api('/api/admin/all-sessions');
+        $('adminAllSessionsList').innerHTML = sessions.length === 0
+            ? '<div class="status-empty">暂无跑团数据</div>'
+            : sessions.map(s => `
+                <div class="admin-list-item">
+                    <div class="ali-main">
+                        <div class="ali-name">${escapeHtml(s.world_emoji)} ${escapeHtml(s.player_name)} · ${escapeHtml(s.world_name)} <small>#${s.rounds}轮</small></div>
+                        <div class="ali-meta" style="font-size:11px;color:var(--text-dim);">用户${s.user_id||'?'}　${escapeHtml(s.state_preview||'无状态数据')} ${!s.shared?'| 🔒 未分享':'| 🔗 已分享'}</div>
+                    </div>
+                    <div class="ali-actions">
+                        <button onclick="adminWatchSession('${escapeHtml(s.session_id)}')" title="实时监控">🔍</button>
+                    </div>
+                </div>
+            `).join('');
+    } catch { $('adminAllSessionsList').innerHTML = '<div class="status-empty">加载失败</div>'; }
+}
+
+$('refreshAllSessionsBtn').addEventListener('click', loadAdminAllSessions);
+
+window.adminWatchSession = function(sid) {
+    // Admin can spectate ANY session, shared or not
+    $('adminModal').classList.remove('show');
+    currentMode = 'rpg';
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('[data-mode="rpg"]').classList.add('active');
+    document.getElementById('chatMode').style.display = 'none';
+    document.getElementById('rpgMode').style.display = 'block';
+    worldSelectScreen.style.display = 'none';
+    gameScreen.style.display = 'none';
+    $('spectateScreen').style.display = 'block';
+    // Set banner for admin monitor
+    const banner = $('spectateBanner');
+    if (banner) {
+        banner.className = 'spectate-banner admin-monitor';
+        $('spectateBannerText').textContent = '🔍 管理员实时监控';
+    }
+    $('spectateBadge').style.display = 'inline-block';
+    $('spectateBadge').className = 'spectate-badge admin-badge';
+    $('spectateBadge').textContent = '⚡ 监控模式';
+    // Start admin spectate polling
+    spectateToken = sid;
+    spectateMode = 'admin';
+    spectatePoll();
+    if (spectateTimer) clearInterval(spectateTimer);
+    spectateTimer = setInterval(spectatePoll, 2000);
+};
+
+// ===== Share =====
+const shareBtn = $('shareBtn');
+shareBtn.addEventListener('click', async () => {
+    if (!rpgState.sessionId) return;
+    if (isShared) {
+        // Unshare
+        const data = await api(`/api/rpg/session/${rpgState.sessionId}/unshare`, { method: 'POST' });
+        if (data.error) { toast(data.error, 'error'); return; }
+        isShared = false;
+        shareBtn.textContent = '🔗 分享';
+        toast('已取消分享，将从围观广场移除', 'info');
+    } else {
+        // Share
+        const data = await api(`/api/rpg/session/${rpgState.sessionId}/share`, { method: 'POST' });
+        if (data.error) { toast(data.error, 'error'); return; }
+        isShared = true;
+        shareBtn.textContent = '🔓 取消分享';
+        toast('✅ 已分享到围观广场，所有人可见', 'success');
+    }
+    // Auto-refresh spectator square
+    const square = $('spectateSquare');
+    if (square) loadSpectateSquare();
+});
+
+// ===== Spectate (Watch others play) =====
+let spectateTimer = null, spectateToken = '';
+let spectateMode = 'shared'; // 'shared' or 'admin'
+
+let spectateRefreshTimer = null;
+$('spectateBtn').addEventListener('click', () => {
+    const square = $('spectateSquare');
+    if (square.style.display !== 'none') {
+        square.style.display = 'none';
+        if (spectateRefreshTimer) { clearInterval(spectateRefreshTimer); spectateRefreshTimer = null; }
+        return;
+    }
+    loadSpectateSquare();
+    square.style.display = 'block';
+    if (!spectateRefreshTimer) spectateRefreshTimer = setInterval(loadSpectateSquare, 5000);
+});
+
+async function loadSpectateSquare() {
+    const list = $('spectateList');
+    try {
+        const sessions = await api('/api/rpg/shared-sessions');
+        if (!sessions.length) {
+            list.innerHTML = '<div class="status-empty">暂无正在分享的跑团</div>';
+            return;
+        }
+        list.innerHTML = sessions.map(s => `
+            <div class="spectate-item">
+                <span class="si-emoji">${escapeHtml(s.world_emoji)}</span>
+                <span class="si-info">
+                    <div class="si-name">${escapeHtml(s.player)} · ${escapeHtml(s.world_name)}</div>
+                    <div class="si-meta">${s.rounds}轮 · 刚刚</div>
+                </span>
+                <button class="si-enter" onclick="startSpectate('${escapeHtml(s.share_token)}')">👀 围观</button>
+            </div>
+        `).join('');
+    } catch { list.innerHTML = '<div class="status-empty">加载失败</div>'; }
+}
+
+async function startSpectate(token) {
+    worldSelectScreen.style.display = 'none';
+    gameScreen.style.display = 'none';
+    $('spectateScreen').style.display = 'block';
+    spectateToken = token;
+    spectateMode = 'shared';
+    // Set banner for regular spectate
+    const banner = $('spectateBanner');
+    if (banner) {
+        banner.className = 'spectate-banner';
+        $('spectateBannerText').textContent = '👀 实时围观中';
+    }
+    $('spectateBadge').style.display = 'inline-block';
+    $('spectateBadge').className = 'spectate-badge';
+    $('spectateBadge').textContent = '🔒 只读';
+    spectatePoll();
+    if (spectateTimer) clearInterval(spectateTimer);
+    spectateTimer = setInterval(spectatePoll, 2000);
+}
+
+async function spectatePoll() {
+    try {
+        const url = spectateMode === 'admin'
+            ? '/api/rpg/admin/spectate/' + spectateToken
+            : '/api/rpg/shared/' + spectateToken;
+        const r = await fetch(url);
+        const d = await r.json();
+        if (d.error) {
+            $('specStoryText').textContent = spectateMode === 'admin' ? '会话不存在或已结束' : '会话已结束';
+            if (spectateTimer) clearInterval(spectateTimer);
+            return;
+        }
+        $('specWorldName').textContent = (d.world.emoji||'') + ' ' + d.world.name;
+        $('specPlayerName').textContent = '🧑 ' + d.player_name;
+        const rounds = d.storyline ? d.storyline.length : (d.rounds || 0);
+        $('specRoundInfo').textContent = '⚡ 第' + (rounds + 1) + '轮 · ' + (spectateMode === 'admin' ? '实时监控' : '实时围观');
+        $('specStoryText').innerHTML = renderMarkdown(d.last_story || '');
+        $('specStatus').innerHTML = renderSectionsHtml(d.sections);
+        if (d.relationship && Object.keys(d.relationship).length) {
+            $('specRelsPanel').style.display = '';
+            $('specRelsBody').innerHTML = Object.entries(d.relationship).map(([k,v]) =>
+                '<div class="status-item"><span class="status-label">'+escapeHtml(k)+'</span><span class="status-value highlight">'+escapeHtml(v)+'</span></div>'
+            ).join('');
+        }
+        if (d.storyline && d.storyline.length) {
+            $('specStorylineBody').innerHTML = d.storyline.map((e,i) => {
+                let is = i === d.storyline.length - 1;
+                return '<div class="sl-entry'+(is?' current':'')+'"><div class="sl-round">#'+e.round+'</div><div class="sl-content"><div class="sl-choice"><span class="sl-choice-tag">▸</span>'+escapeHtml(e.choice)+'</div><div class="sl-story">'+escapeHtml(e.story||'')+'</div></div></div>';
+            }).join('');
+        }
+    } catch(e) {}
+}
+
+function renderSectionsHtml(sec) {
+    if (!sec || !Object.keys(sec).length) return '<div class="status-empty">暂无</div>';
+    let h = '';
+    for (const [k, v] of Object.entries(sec)) {
+        if (k === '关系_map' || typeof v === 'object') continue;
+        h += '<div class="status-section"><div class="status-section-title">'+escapeHtml(k)+'</div>';
+        h += parseStatusValue(cleanText(v));
+        h += '</div>';
+    }
+    return h || '<div class="status-empty">暂无</div>';
+}
+
+$('specExitBtn').addEventListener('click', () => {
+    if (spectateTimer) clearInterval(spectateTimer);
+    spectateTimer = null;
+    spectateMode = 'shared';
+    $('spectateScreen').style.display = 'none';
+    worldSelectScreen.style.display = 'block';
+});
+
+// Show share button (now handled inside startGame/resumeGame)

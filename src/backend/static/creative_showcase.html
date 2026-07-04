@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>云雾酒馆 - AI驱动的沉浸式聊天与跑团平台</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&family=ZCOOL+XiaoWei&display=swap');
+        
+        :root {
+            --primary: #D4A84B;
+            --primary-dark: #B8943D;
+            --secondary: #8B5CF6;
+            --accent: #F97316;
+            --bg-dark: #0F0F14;
+            --bg-card: #1A1A24;
+            --bg-card-hover: #252532;
+            --text-primary: #E8E8EC;
+            --text-secondary: #9CA3AF;
+            --border: #2A2A3A;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Serif SC', serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.8;
+            overflow-x: hidden;
+        }
+
+        .font-display {
+            font-family: 'ZCOOL XiaoWei', serif;
+        }
+
+        /* 背景动画 */
+        .bg-gradient {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at 20% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 80%, rgba(212, 168, 75, 0.1) 0%, transparent 50%),
+                        radial-gradient(ellipse at 50% 50%, rgba(249, 115, 22, 0.05) 0%, transparent 70%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .stars {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle 3s infinite;
+        }
+
+        @keyframes twinkle {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* 导航栏 */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(15, 15, 20, 0.85);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border);
+            padding: 1rem 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-family: 'ZCOOL XiaoWei', serif;
+            font-size: 1.5rem;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s;
+            font-size: 0.95rem;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        /* Hero 区域 */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 6rem 5% 4rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-title {
+            font-family: 'ZCOOL XiaoWei', serif;
+            font-size: 4.5rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 50%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+            animation: fadeUp 1s ease-out;
+        }
+
+        .hero-subtitle {
+            font-size: 1.4rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            animation: fadeUp 1s ease-out 0.2s both;
+            max-width: 600px;
+        }
+
+        .hero-tagline {
+            font-size: 1.1rem;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+            padding: 0.75rem 2rem;
+            border-radius: 30px;
+            animation: fadeUp 1s ease-out 0.4s both;
+        }
+
+        .scroll-indicator {
+            position: absolute;
+            bottom: 2rem;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(10px); }
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 章节通用样式 */
+        section {
+            padding: 5rem 5%;
+            position: relative;
+            z-index: 1;
+        }
+
+        .section-title {
+            font-family: 'ZCOOL XiaoWei', serif;
+            font-size: 2.5rem;
+            text-align: center;
+            margin-bottom: 3rem;
+            color: var(--primary);
+        }
+
+        .section-title::after {
+            content: '';
+            display: block;
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            margin: 0.5rem auto 0;
+            border-radius: 2px;
+        }
+
+        /* 创意介绍卡片 */
+        .intro-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            transform: scaleX(0);
+            transition: transform 0.3s;
+        }
+
+        .card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: var(--primary);
+            box-shadow: 0 20px 40px rgba(212, 168, 75, 0.1);
+        }
+
+        .card-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .card-title {
+            font-family: 'ZCOOL XiaoWei', serif;
+            font-size: 1.4rem;
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+
+        .card-text {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* 目标用户区域 */
+        .user-section {
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .user-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .user-item {
+            text-align: center;
+            padding: 2rem;
+            background: var(--bg-dark);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            transition: all 0.3s;
+        }
+
+        .user-item:hover {
+            border-color: var(--primary);
+        }
+
+        .user-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.5rem;
+            font-size: 2.5rem;
+        }
+
+        .user-title {
+            font-family: 'ZCOOL XiaoWei', serif;
+            font-size: 1.2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .user-desc {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* 痛点分析 */
+        .pain-points {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .pain-point {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border-radius: 12px;
+            border-left: 4px solid var(--accent);
+            transition: all 0.3s;
+        }
+
+        .pain-point:hover {
+            transform: translateX(10px);
+            box-shadow: 0 10px 30px rgba(249, 115, 22, 0.1);
+        }
+
+        .pain-icon {
+            font-size: 1.5rem;
+            flex-shrink: 0;
+        }
+
+        .pain-content h3 {
+            font-family: 'ZCOOL XiaoWei', serif;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .pain-content p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* 价值与意义 */
+        .value-section {
+            background: linear-gradient(180deg, var(--bg-dark) 0%, var(--bg-card) 100%);
+        }
+
+        .value-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .value-card {
+            background: linear-gradient(135deg, rgba(212, 168, 75, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2.5rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .value-card::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(212, 168, 75, 0.1) 0%, transparent 70%);
+        }
+
+        .value-number {
+            font-family: 'ZCOOL XiaoWei', serif;
+            font-size: 4rem;
+            color: var(--primary);
+            opacity: 0.3;
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+        }
+
+        .value-icon {
+            font-size: 3rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .value-title {
+            font-family: 'ZCOOL XiaoWei', serif;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        .value-desc {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.8;
+        }
+
+        /* 产品特性 */
+        .features {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-item {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            align-items: center;
+            margin-bottom: 4rem;
+        }
+
+        .feature-item:nth-child(even) .feature-text {
+            order: 2;
+        }
+
+        .feature-item:nth-child(even) .feature-image {
+            order: 1;
+        }
+
+        .feature-text h3 {
+            font-family: 'ZCOOL XiaoWei', serif;
+            font-size: 1.8rem;
+            color: var(--primary);
+            margin-bottom: 1.5rem;
+        }
+
+        .feature-text p {
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .feature-image {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 4rem;
+            border: 1px solid var(--border);
+            min-height: 200px;
+        }
+
+        /* 技术栈 */
+        .tech-stack {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 1rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .tech-tag {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            padding: 0.5rem 1.5rem;
+            border-radius: 20px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            transition: all 0.3s;
+        }
+
+        .tech-tag:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        /* 页脚 */
+        footer {
+            background: var(--bg-card);
+            border-top: 1px solid var(--border);
+            padding: 3rem 5%;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .footer-links a:hover {
+            color: var(--primary);
+        }
+
+        .version {
+            color: var(--primary);
+            font-family: 'ZCOOL XiaoWei', serif;
+        }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .hero-title {
+                font-size: 2.5rem;
+            }
+            
+            .hero-subtitle {
+                font-size: 1.1rem;
+            }
+            
+            .nav-links {
+                display: none;
+            }
+            
+            .feature-item {
+                grid-template-columns: 1fr;
+            }
+            
+            .feature-item:nth-child(even) .feature-text,
+            .feature-item:nth-child(even) .feature-image {
+                order: initial;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-gradient"></div>
+    <div class="stars" id="stars"></div>
+
+    <nav>
+        <div class="logo">
+            <span>🍺</span>
+            <span>云雾酒馆</span>
+        </div>
+        <div class="nav-links">
+            <a href="#intro">创意介绍</a>
+            <a href="#users">目标用户</a>
+            <a href="#painpoints">痛点分析</a>
+            <a href="#value">价值意义</a>
+            <a href="#features">产品特性</a>
+        </div>
+    </nav>
+
+    <section class="hero">
+        <h1 class="hero-title">云雾酒馆</h1>
+        <p class="hero-subtitle">AI驱动的沉浸式聊天与跑团平台</p>
+        <span class="hero-tagline">让每一次对话都成为一场冒险</span>
+        <div class="scroll-indicator">
+            <span style="font-size: 1.5rem;">⬇️</span>
+        </div>
+    </section>
+
+    <section id="intro">
+        <h2 class="section-title">创意介绍</h2>
+        <div class="intro-cards">
+            <div class="card">
+                <div class="card-icon">🎯</div>
+                <h3 class="card-title">想解决什么问题</h3>
+                <p class="card-text">
+                    现有的AI聊天工具缺乏情感连接和场景化体验，用户在冰冷的对话框中难以获得沉浸式的互动感受；同时，传统跑团游戏门槛高、准备复杂，难以随时随地开启一场精彩冒险。
+                </p>
+            </div>
+            <div class="card">
+                <div class="card-icon">💡</div>
+                <h3 class="card-title">为什么会想到做这个</h3>
+                <p class="card-text">
+                    灵感来源于对"酒馆文化"的向往——一个充满故事与奇遇的社交空间。我们希望利用AI技术打造一个虚拟酒馆，让用户既能与各具特色的AI角色聊天互动，又能随时开启一场充满惊喜的跑团冒险。
+                </p>
+            </div>
+            <div class="card">
+                <div class="card-icon">🌐</div>
+                <h3 class="card-title">大概是什么产品</h3>
+                <p class="card-text">
+                    一款融合AI聊天与文字冒险跑团的Web应用，提供多角色互动、世界书选择、实时剧情生成等功能，支持单人游戏与多人围观模式。
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section id="users" class="user-section">
+        <h2 class="section-title">目标用户及痛点</h2>
+        <div class="user-grid">
+            <div class="user-item">
+                <div class="user-icon">🎮</div>
+                <h3 class="user-title">游戏爱好者</h3>
+                <p class="user-desc">喜欢角色扮演和文字冒险，渴望随时随地开启游戏</p>
+            </div>
+            <div class="user-item">
+                <div class="user-icon">📚</div>
+                <h3 class="user-title">文学创作者</h3>
+                <p class="user-desc">寻找灵感和创作伙伴，希望获得AI辅助创作</p>
+            </div>
+            <div class="user-item">
+                <div class="user-icon">💬</div>
+                <h3 class="user-title">社交探索者</h3>
+                <p class="user-desc">喜欢与不同性格的AI角色互动，探索虚拟世界</p>
+            </div>
+            <div class="user-item">
+                <div class="user-icon">🧠</div>
+                <h3 class="user-title">脑洞玩家</h3>
+                <p class="user-desc">希望AI能跟上自己的想象力，创造独特故事</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="painpoints">
+        <h2 class="section-title">当前痛点</h2>
+        <div class="pain-points">
+            <div class="pain-point">
+                <div class="pain-icon">⏳</div>
+                <div class="pain-content">
+                    <h3>传统跑团门槛高</h3>
+                    <p>需要准备大量资料、寻找合适的DM和玩家，时间成本高，难以随时开始</p>
+                </div>
+            </div>
+            <div class="pain-point">
+                <div class="pain-icon">😐</div>
+                <div class="pain-content">
+                    <h3>对话缺乏情感</h3>
+                    <p>现有AI聊天工具过于机械，缺乏个性和情感，难以建立深度连接</p>
+                </div>
+            </div>
+            <div class="pain-point">
+                <div class="pain-icon">🎲</div>
+                <div class="pain-content">
+                    <h3>剧情无法自由发挥</h3>
+                    <p>传统文字冒险游戏剧情固定，玩家无法自由选择和探索</p>
+                </div>
+            </div>
+            <div class="pain-point">
+                <div class="pain-icon">🔒</div>
+                <div class="pain-content">
+                    <h3>无法围观互动</h3>
+                    <p>跑团通常是私密活动，缺乏围观和分享机制，无法展示精彩瞬间</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="value" class="value-section">
+        <h2 class="section-title">价值与意义</h2>
+        <div class="value-grid">
+            <div class="value-card">
+                <div class="value-number">01</div>
+                <div class="value-icon">🚀</div>
+                <h3 class="value-title">效率提升</h3>
+                <p class="value-desc">
+                    AI担任DM角色，自动生成剧情和判定结果，无需人工准备，随时随地开启跑团游戏，将传统需要数小时准备的游戏压缩到几分钟内即可开始。
+                </p>
+            </div>
+            <div class="value-card">
+                <div class="value-number">02</div>
+                <div class="value-icon">💰</div>
+                <h3 class="value-title">商业价值</h3>
+                <p class="value-desc">
+                    通过积分充值、会员订阅、世界书付费等模式实现商业化。同时支持UGC内容创作，构建内容生态，吸引更多用户参与和创作。
+                </p>
+            </div>
+            <div class="value-card">
+                <div class="value-number">03</div>
+                <div class="value-icon">🌍</div>
+                <h3 class="value-title">社会价值</h3>
+                <p class="value-desc">
+                    为用户提供一个安全、有趣的虚拟社交空间，通过故事创作和角色扮演释放压力、激发创造力，促进心理健康和社交连接。
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section id="features">
+        <h2 class="section-title">产品特性</h2>
+        <div class="features">
+            <div class="feature-item">
+                <div class="feature-text">
+                    <h3>🧠 多角色互动</h3>
+                    <p>酒馆中有7位各具特色的AI智能体：风趣的掌柜、神秘的吟游诗人、精明的侦探等等，每个角色都有独特的性格和背景故事，让对话充满惊喜。</p>
+                </div>
+                <div class="feature-image">🤖</div>
+            </div>
+            <div class="feature-item">
+                <div class="feature-text">
+                    <h3>🎲 沉浸式跑团</h3>
+                    <p>选择不同的世界书开启冒险，AI自动生成剧情分支和判定结果，支持角色状态管理、故事线记录和关系网追踪，打造完整的游戏体验。</p>
+                </div>
+                <div class="feature-image">📖</div>
+            </div>
+            <div class="feature-item">
+                <div class="feature-text">
+                    <h3>👀 围观广场</h3>
+                    <p>支持跑团分享和围观功能，其他玩家可以实时观看精彩的跑团过程，增加社交互动和内容传播。</p>
+                </div>
+                <div class="feature-image">👁️</div>
+            </div>
+            <div class="feature-item">
+                <div class="feature-text">
+                    <h3>📝 世界书投稿</h3>
+                    <p>用户可以创作并投稿自己的世界书，经过审核后供其他玩家使用，构建UGC内容生态。</p>
+                </div>
+                <div class="feature-image">✏️</div>
+            </div>
+        </div>
+    </section>
+
+    <section>
+        <h2 class="section-title">技术栈</h2>
+        <div class="tech-stack">
+            <span class="tech-tag">Python</span>
+            <span class="tech-tag">Flask</span>
+            <span class="tech-tag">SQLAlchemy</span>
+            <span class="tech-tag">HTML5</span>
+            <span class="tech-tag">CSS3</span>
+            <span class="tech-tag">JavaScript</span>
+            <span class="tech-tag">PyInstaller</span>
+            <span class="tech-tag">SQLite</span>
+            <span class="tech-tag">JWT</span>
+            <span class="tech-tag">RESTful API</span>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-links">
+            <a href="#intro">创意介绍</a>
+            <a href="#users">目标用户</a>
+            <a href="#painpoints">痛点分析</a>
+            <a href="#value">价值意义</a>
+        </div>
+        <p>🍺 云雾酒馆 · AI驱动的沉浸式聊天与跑团平台</p>
+        <p class="version">Version: v2.0.3</p>
+    </footer>
+
+    <script>
+        // 创建星星背景
+        const starsContainer = document.getElementById('stars');
+        for (let i = 0; i < 50; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 3 + 's';
+            star.style.opacity = Math.random() * 0.5 + 0.3;
+            starsContainer.appendChild(star);
+        }
+
+        // 平滑滚动
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // 导航栏滚动效果
+        window.addEventListener('scroll', () => {
+            const nav = document.querySelector('nav');
+            if (window.scrollY > 50) {
+                nav.style.background = 'rgba(15, 15, 20, 0.95)';
+                nav.style.borderBottom = '1px solid rgba(212, 168, 75, 0.2)';
+            } else {
+                nav.style.background = 'rgba(15, 15, 20, 0.85)';
+                nav.style.borderBottom = '1px solid var(--border)';
+            }
+        });
+    </script>
+</body>
+</html>

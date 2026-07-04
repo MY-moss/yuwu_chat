@@ -1,0 +1,84 @@
+{
+    "history": [
+        {
+            "version": "v2.0.4",
+            "old_version": "v2.0.3",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "代码审计修复：事件监听完善、JSON文件锁保护、冗余代码清理",
+            "timestamp": "2026-07-03 18:00:00"
+        },
+        {
+            "version": "v2.0.3",
+            "old_version": "v2.0.2",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "",
+            "timestamp": "2026-07-02 16:56:02"
+        },
+        {
+            "version": "v2.0.2",
+            "old_version": "v2.0.1",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "",
+            "timestamp": "2026-07-02 16:54:04"
+        },
+        {
+            "version": "v2.0.1",
+            "old_version": "v2.0.0",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "优化代码，添加版本历史功能",
+            "timestamp": "2026-07-02 16:15:00"
+        },
+        {
+            "version": "v2.0.0",
+            "old_version": "v1.2.0",
+            "type": "major",
+            "type_desc": "重大版本更新",
+            "description": "玩法大迭代，系统重构",
+            "timestamp": "2026-07-02 10:00:00"
+        },
+        {
+            "version": "v1.2.0",
+            "old_version": "v1.1.2",
+            "type": "minor",
+            "type_desc": "大版本更新",
+            "description": "添加版本号管理系统",
+            "timestamp": "2026-07-02 09:30:00"
+        },
+        {
+            "version": "v1.1.2",
+            "old_version": "v1.1.1",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "修复版本号API返回404问题",
+            "timestamp": "2026-07-02 09:00:00"
+        },
+        {
+            "version": "v1.1.1",
+            "old_version": "v1.1.0",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "优化打包流程，修复路径问题",
+            "timestamp": "2026-07-01 18:00:00"
+        },
+        {
+            "version": "v1.1.0",
+            "old_version": "v1.0.0",
+            "type": "minor",
+            "type_desc": "大版本更新",
+            "description": "添加智能体聊天功能，跑团系统优化",
+            "timestamp": "2026-07-01 10:00:00"
+        },
+        {
+            "version": "v1.0.0",
+            "old_version": "",
+            "type": "initial",
+            "type_desc": "初始版本",
+            "description": "酒馆系统正式上线",
+            "timestamp": "2026-06-30 12:00:00"
+        }
+    ]
+}

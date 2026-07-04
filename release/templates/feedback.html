@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户反馈 - 云雾酒馆</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/feedback.css">
+</head>
+<body>
+    <div class="tavern-bg"></div>
+    <div class="particles"></div>
+
+    <div class="container fb-container">
+        <!-- Header -->
+        <div class="header">
+            <div class="sign">
+                <div class="sign-text">云雾酒馆</div>
+                <div class="sign-sub">用户反馈中心</div>
+            </div>
+            <div class="header-right">
+                <div class="user-info" id="userInfo">
+                    <span class="username" id="usernameDisplay">用户</span>
+                    <button class="btn-sm" onclick="window.location.href='/'">🏠 回酒馆</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats Bar (admin only) -->
+        <div class="fb-stats-bar" id="statsBar" style="display:none;">
+            <div class="fb-stat-item"><span class="fb-stat-num" id="statTotal">0</span> 总反馈</div>
+            <div class="fb-stat-item"><span class="fb-stat-num" id="statOpen">0</span> 待处理</div>
+            <div class="fb-stat-item"><span class="fb-stat-num" id="statProgress">0</span> 处理中</div>
+            <div class="fb-stat-item"><span class="fb-stat-num" id="statResolved">0</span> 已解决</div>
+            <div class="fb-stat-item"><span class="fb-stat-num" id="statRating">-</span> 均分</div>
+        </div>
+
+        <div class="fb-layout">
+            <!-- Left: Submit Form -->
+            <div class="fb-form-panel">
+                <div class="fb-panel-header">📝 提交反馈</div>
+                <div class="fb-form-body">
+                    <div class="fb-form-group">
+                        <label>分类</label>
+                        <select id="fbCategory" class="fb-select">
+                            <option value="bug">🐛 Bug 报告</option>
+                            <option value="feature">💡 功能建议</option>
+                            <option value="suggestion" selected>📋 改进建议</option>
+                            <option value="praise">🎉 好评点赞</option>
+                            <option value="other">💬 其他</option>
+                        </select>
+                    </div>
+                    <div class="fb-form-group">
+                        <label>评分</label>
+                        <div class="fb-rating" id="fbRating">
+                            <span class="fb-star" data-value="1">☆</span>
+                            <span class="fb-star" data-value="2">☆</span>
+                            <span class="fb-star active" data-value="3">★</span>
+                            <span class="fb-star" data-value="4">☆</span>
+                            <span class="fb-star" data-value="5">☆</span>
+                        </div>
+                    </div>
+                    <div class="fb-form-group">
+                        <label>标题</label>
+                        <input type="text" id="fbTitle" class="fb-input" placeholder="一句话概括你的想法..." maxlength="200">
+                    </div>
+                    <div class="fb-form-group">
+                        <label>详细描述</label>
+                        <textarea id="fbContent" class="fb-textarea" rows="6" placeholder="请详细描述你的问题、建议或反馈...&#10;&#10;对于 Bug：请说明操作步骤、预期结果和实际结果&#10;对于建议：请说明当前不足和改进方向" maxlength="5000"></textarea>
+                    </div>
+                    <button class="fb-submit-btn" id="fbSubmitBtn">✉️ 提交反馈</button>
+                    <div class="fb-hint">我们重视每一条反馈，开发团队会认真审阅并持续改进 🙏</div>
+                </div>
+            </div>
+
+            <!-- Right: Feedback List -->
+            <div class="fb-list-panel">
+                <!-- Filters -->
+                <div class="fb-panel-header">
+                    <span>📋 反馈列表</span>
+                    <div class="fb-filters">
+                        <input type="text" id="fbSearchInput" class="fb-search-input" placeholder="🔍 搜索...">
+                        <select id="fbFilterCategory" class="fb-filter-select">
+                            <option value="">全部分类</option>
+                            <option value="bug">🐛 Bug</option>
+                            <option value="feature">💡 功能建议</option>
+                            <option value="suggestion">📋 建议</option>
+                            <option value="praise">🎉 好评</option>
+                            <option value="other">💬 其他</option>
+                        </select>
+                        <select id="fbFilterStatus" class="fb-filter-select">
+                            <option value="">全部状态</option>
+                            <option value="open">待处理</option>
+                            <option value="in_progress">处理中</option>
+                            <option value="resolved">已解决</option>
+                            <option value="closed">已关闭</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- List -->
+                <div class="fb-list" id="fbList">
+                    <div class="fb-empty">暂无反馈数据</div>
+                </div>
+
+                <!-- Pagination -->
+                <div class="fb-pagination" id="fbPagination" style="display:none;"></div>
+            </div>
+        </div>
+
+        <!-- Admin Detail Modal -->
+        <div class="modal-overlay" id="fbDetailModal" style="display:none;">
+            <div class="modal modal-wide">
+                <div class="modal-header">
+                    <span id="fbDetailTitle">反馈详情</span>
+                    <button class="modal-close" onclick="closeFbDetail()">&times;</button>
+                </div>
+                <div class="modal-body" id="fbDetailBody"></div>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div class="toast-container" id="toastContainer"></div>
+    </div>
+
+    <script src="/static/feedback.js"></script>
+</body>
+</html>

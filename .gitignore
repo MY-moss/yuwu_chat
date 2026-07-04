@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.spec
+
+# Environment
+.env
+instance/tavern.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Build output
+release/tavern.exe
+release/instance/
+
+# Old release
+�����ƹ�_������/
+
+# Logs
+*.log
+
+# Windows special files
+nul

@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>云雾酒馆 - 聊天 · 跑团</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="tavern-bg"></div>
+    <div class="particles"></div>
+
+    <!-- ===== 登录/注册界面 ===== -->
+    <div id="authScreen" class="auth-screen">
+        <div class="auth-box">
+            <div class="auth-title">🍺 云雾酒馆</div>
+            <div class="auth-sub">欢迎回来，旅人</div>
+            
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-mode="login">🔐 登录</button>
+                <button class="auth-tab" data-mode="register">📝 注册</button>
+            </div>
+            <div id="loginForm" class="auth-form">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="loginUsername" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="loginPassword" placeholder="请输入密码">
+                </div>
+                <button class="btn-add auth-btn" id="loginBtn">登录</button>
+                <div class="auth-hint">管理员账户已配置，请联系管理员获取登录信息</div>
+            </div>
+
+            <div id="registerForm" class="auth-form" style="display:none;">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="regUsername" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="regPassword" placeholder="至少6位密码">
+                </div>
+                <div class="form-group">
+                    <label>确认密码</label>
+                    <input type="password" id="regPassword2" placeholder="再次输入密码">
+                </div>
+                <button class="btn-add auth-btn" id="registerBtn">注册</button>
+                <div class="auth-hint">注册即送 100 积分</div>
+            </div>
+
+            <div class="auth-error" id="authError"></div>
+        </div>
+    </div>
+
+    <!-- ===== 主界面 ===== -->
+    <div id="mainScreen" class="container" style="display:none;">
+        <div class="header">
+            <div class="sign">
+                <div class="sign-text">云雾酒馆</div>
+                <div class="sign-sub">Chat · RPG</div>
+            </div>
+            <div class="header-right">
+                <div class="user-info" id="userInfo">
+                    <span class="credits" id="creditsDisplay">💰 100</span>
+                    <span class="credits free-mode" id="freeModeDisplay" style="display:none;">🆓 免费</span>
+                    <span class="username" id="usernameDisplay">用户</span>
+                    <div class="font-size-group" style="display:inline-flex;align-items:center;gap:4px;margin:0 6px;">
+                        <button class="font-size-btn" data-size="small" title="小号">A-</button>
+                        <button class="font-size-btn active" data-size="normal" title="默认">A</button>
+                        <button class="font-size-btn" data-size="large" title="大号">A+</button>
+                    </div>
+                    <button class="btn-sm api-btn" id="apiSettingBtn">🔌 API</button>
+                    <button class="btn-sm redeem-btn" id="redeemBtn">💳 充值</button>
+                    <button class="btn-sm logout-btn" id="logoutBtn">🚪 退出</button>
+                    <button class="btn-sm" id="dashboardBtn" style="display:none;">📊 大屏</button>
+                    <button class="btn-sm admin-btn" id="adminBtn" style="display:none;">⚙️ 管理</button>
+                    <button class="btn-sm" id="changePwdBtn" title="修改密码">🔑 修改密码</button>
+                </div>
+                
+                <select id="modelSelect" class="model-select" title="切换AI模型"></select>
+                <div class="mode-tabs">
+                    <button class="mode-tab active" data-mode="chat">💬 聊天</button>
+                    <button class="mode-tab" data-mode="rpg">🎲 跑团</button>
+                    <div class="mode-tab-indicator"></div>
+                </div>
+                <a href="/feedback" class="btn-sm feedback-nav-btn" title="用户反馈">📋 反馈</a>
+            </div>
+        </div>
+
+        <!-- ===== 聊天模式 ===== -->
+        <div id="chatMode">
+            <div class="tavern-info">
+                <select id="agentSelect" class="agent-select" style="display:none;"></select>
+                <div class="agent-card-selector" id="agentCardSelector"></div>
+                <button class="btn-manage" id="manageBtn" title="管理智能体">⚙️</button>
+            </div>
+            <div class="chat-box" id="chatBox"></div>
+            <div class="input-area">
+                <div class="slash-menu" id="slashMenu"></div>
+                <div class="input-wrapper">
+                    <input type="text" id="messageInput" placeholder="对掌柜说说你的心事... 输入 / 查看命令" autofocus>
+                    <button id="sendBtn"><span class="btn-icon">🍺</span> 来一杯</button>
+                </div>
+                <div class="hint" id="agentHint">选择一位角色聊聊</div>
+            </div>
+        </div>
+
+        <!-- ===== 跑团模式 ===== -->
+        <div id="rpgMode">
+            <div class="sessions-bar" id="sessionsBar">
+                <div class="sessions-bar-header" id="sessionsBarHeader">
+                    <span>🏃 活跃跑团 <span class="sessions-count" id="sessionsCount">0</span></span>
+                    <span class="sessions-toggle" id="sessionsToggle">▲</span>
+                </div>
+                <div class="sessions-body" id="sessionsBody">
+                    <div class="sessions-empty" id="sessionsEmpty">暂无活跃跑团，选择世界书开始新游戏</div>
+                    <div class="sessions-list" id="sessionsList"></div>
+                </div>
+            </div>
+
+            <div id="worldSelectScreen">
+                <div class="rpg-header">
+                    <span>📖 选择世界书</span>
+                    <div>
+                        <button class="btn-manage" id="spectateBtn">🔍 围观</button>
+                        <button class="btn-manage" id="submitWorldBtn">📝 投稿</button>
+                        <button class="btn-manage" id="manageWorldBtn">✏️</button>
+                    </div>
+                </div>
+                <div class="world-grid" id="worldGrid"></div>
+                <div class="spectate-square" id="spectateSquare" style="margin-top:16px;display:none;">
+                    <div class="rpg-header"><span>👀 围观广场</span></div>
+                    <div class="spectate-list" id="spectateList">
+                        <div class="status-empty"><span class="status-empty-icon">👀</span><span class="status-empty-text">暂无正在分享的跑团<br>开启你的冒险并分享给朋友吧</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 围观观看器 -->
+            <div id="spectateScreen" style="display:none;">
+                <div class="spectate-banner" id="spectateBanner">
+                    <span class="spectate-banner-icon">👀</span>
+                    <span class="spectate-banner-text" id="spectateBannerText">实时围观中</span>
+                    <span class="spectate-badge" id="spectateBadge" style="display:none;">🔒 只读</span>
+                    <div style="flex:1;"></div>
+                    <button class="btn-sm spec-exit-btn" id="specExitBtn">🚪 退出</button>
+                </div>
+                <div class="game-status-bar spectate-bar">
+                    <span id="specWorldName" class="spec-world-name"></span>
+                    <span id="specPlayerName" class="spec-player-name"></span>
+                    <span class="spec-round-info" id="specRoundInfo"></span>
+                </div>
+                <div class="game-main spectate-main">
+                    <div class="story-panel spectate-story-panel">
+                        <div class="story-box spectate-story-box" id="specStoryBox">
+                            <div class="story-text" id="specStoryText"></div>
+                        </div>
+                    </div>
+                    <div class="side-panel spectate-side">
+                        <div class="status-panel">
+                            <div class="status-title">📊 角色状态</div>
+                            <div class="status-content" id="specStatus"><div class="status-empty"><span class="status-empty-icon">⏳</span><span class="status-empty-text">等待数据加载...</span></div></div>
+                        </div>
+                        <div class="storyline-panel">
+                            <div class="storyline-header"><span>📜 故事线</span></div>
+                            <div class="storyline-body" id="specStorylineBody"><div class="status-empty"><span class="status-empty-icon">📜</span><span class="status-empty-text">故事线尚未开始</span></div></div>
+                        </div>
+                        <div class="storyline-panel" id="specRelsPanel" style="display:none;">
+                            <div class="storyline-header"><span>🤝 关系</span></div>
+                            <div class="storyline-body" id="specRelsBody"><div class="status-empty"><span class="status-empty-icon">🤝</span><span class="status-empty-text">暂无关系数据</span></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="gameScreen">
+                <div class="game-status-bar">
+                    <span id="gameWorldName"></span>
+                    <span id="gamePlayerName"></span>
+                    <span id="gameRound" style="color:var(--gold-dim);font-size:12px;"></span>
+                    <div style="flex:1;"></div>
+                    <div>
+                        <button class="btn-sm" id="shareBtn" style="display:none;">🔗 分享</button>
+                        <button class="btn-sm" id="exitGameBtn">🚪 离开</button>
+                    </div>
+                </div>
+                <div class="game-main">
+                    <div class="personal-panel" id="personalPanel">
+                        <div class="panel-header">
+                            <span class="status-title">👤 个人信息</span>
+                            <button class="panel-toggle" id="personalPanelToggle" title="收起面板">▶</button>
+                        </div>
+                        <div class="status-content" id="personalContent">
+                            <div class="status-empty"><span class="status-empty-icon">🎲</span><span class="status-empty-text">等待游戏开始...<br>选择世界书开启你的冒险</span></div>
+                        </div>
+                    </div>
+                    <div class="story-panel">
+                        <div class="story-box" id="storyBox"><div class="story-text" id="storyText"></div></div>
+                        <div class="choices-area" id="choicesArea"></div>
+                    </div>
+                    <div class="right-panel" id="rightPanel">
+                        <button class="panel-toggle-right" id="rightPanelToggle" title="收起面板">◀</button>
+                        <div class="storyline-panel" id="storylinePanel">
+                            <div class="storyline-header" id="storylineHeader">
+                                <span>📜 故事线</span>
+                                <span class="storyline-toggle" id="storylineToggle">▼</span>
+                            </div>
+                            <div class="storyline-body" id="storylineBody">
+                                <div class="status-empty"><span class="status-empty-icon">📜</span><span class="status-empty-text">尚无历史记录<br>开始行动来书写你的故事</span></div>
+                            </div>
+                        </div>
+                        <div class="storyline-panel">
+                            <div class="storyline-header"><span>🤝 关系网</span></div>
+                            <div class="storyline-body" id="relsBody">
+                                <div class="status-empty"><span class="status-empty-icon">🤝</span><span class="status-empty-text">暂无关系数据<br>与更多角色互动来建立关系</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== 管理员面板 ===== -->
+    <div class="modal-overlay" id="adminModal">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <span>⚙️ 管理员面板</span>
+                <button class="modal-close" id="adminClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="admin-tabs">
+                    <button class="admin-tab active" data-panel="models">🧠 模型管理</button>
+                    <button class="admin-tab" data-panel="apiconfig">🔌 API配置</button>
+                    <button class="admin-tab" data-panel="users">👥 用户管理</button>
+                    <button class="admin-tab" data-panel="stats">📊 统计</button>
+                    <button class="admin-tab" data-panel="submissions">📝 待审核</button>
+                    <button class="admin-tab" data-panel="creditkeys">🎫 充值密钥</button>
+                    <button class="admin-tab" data-panel="allsessions">🏃 跑团监控</button>
+                </div>
+                
+                <!-- 模型管理 -->
+                <div id="adminModelsPanel" class="admin-panel">
+                    <div class="admin-panel-header">
+                        <span>AI 模型列表</span>
+                        <button class="btn-add btn-sm" id="addModelBtn">+ 添加模型</button>
+                    </div>
+                    <div class="admin-list" id="adminModelsList"></div>
+                </div>
+
+                <!-- API配置 -->
+                <div id="adminApiConfigPanel" class="admin-panel" style="display:none;">
+                    <div class="admin-panel-header">
+                        <span>🔌 API 配置管理</span>
+                    </div>
+                    <div class="api-config-form">
+                        <div class="form-group"><label>API Key</label><input type="text" id="adminApiKey" placeholder="sk-xxxxxxxx..."></div>
+                        <div class="form-group"><label>API URL</label><input type="text" id="adminApiUrl" placeholder="https://opencode.ai/zen/v1/chat/completions"></div>
+                        <button class="btn-add" id="saveAdminApiBtn" style="width:100%;">💾 保存配置</button>
+                    </div>
+                    <div class="admin-panel-header" style="margin-top:16px;">
+                        <span>📊 API 优先级排序</span>
+                    </div>
+                    <div class="admin-list" id="adminApiPriorityList"></div>
+                </div>
+
+                <!-- 用户管理 -->
+                <div id="adminUsersPanel" class="admin-panel" style="display:none;">
+                    <div class="admin-panel-header">
+                        <span>用户列表</span>
+                    </div>
+                    <div class="admin-list" id="adminUsersList"></div>
+                </div>
+
+                <!-- 充值密钥 -->
+                <div id="adminCreditKeysPanel" class="admin-panel" style="display:none;">
+                    <div class="admin-panel-header">
+                        <span>生成充值密钥</span>
+                    </div>
+                    <div class="credit-key-form">
+                        <div class="form-inline">
+                            <div class="form-group"><label>面额（积分）</label><input type="number" id="keyCredits" value="100" min="1"></div>
+                            <div class="form-group"><label>生成数量</label><input type="number" id="keyCount" value="1" min="1" max="100"></div>
+                            <button class="btn-add" id="genKeyBtn">🎫 生成密钥</button>
+                        </div>
+                    </div>
+                    <div class="admin-panel-header" style="margin-top:16px;">
+                        <span>已生成密钥</span>
+                    </div>
+                    <div class="admin-list" id="adminKeysList"></div>
+                </div>
+
+                <!-- 统计 -->
+                <div id="adminStatsPanel" class="admin-panel" style="display:none;">
+                    <div class="admin-panel-header"><span>📊 API 调用统计</span></div>
+                    <div class="stats-grid" id="adminStatsContent">
+                        <div class="status-empty">加载中...</div>
+                    </div>
+                </div>
+
+                <!-- 待审核 -->
+                <div id="adminSubmissionsPanel" class="admin-panel" style="display:none;">
+                    <div class="admin-panel-header"><span>📝 待审核世界书</span></div>
+                    <div class="admin-list" id="adminSubmissionsList"></div>
+                </div>
+
+                <!-- 跑团监控 -->
+                <div id="adminAllSessionsPanel" class="admin-panel" style="display:none;">
+                    <div class="admin-panel-header">
+                        <span>🏃 所有跑团进度</span>
+                        <button class="btn-add btn-sm" id="refreshAllSessionsBtn">🔄 刷新</button>
+                    </div>
+                    <div class="admin-list" id="adminAllSessionsList"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="adminCancel">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="mobile-tab-bar" id="mobileTabBar">
+        <button class="mobile-tab-item" data-mode="chat">
+            <span class="mobile-tab-icon">💬</span>
+            <span class="mobile-tab-label">聊天</span>
+        </button>
+        <button class="mobile-tab-item active" data-mode="rpg">
+            <span class="mobile-tab-icon">🎲</span>
+            <span class="mobile-tab-label">跑团</span>
+        </button>
+        <a href="/feedback" class="mobile-tab-item" target="_blank">
+            <span class="mobile-tab-icon">📋</span>
+            <span class="mobile-tab-label">反馈</span>
+        </a>
+    </div>
+
+    <!-- 模型编辑器 -->
+    <div class="modal-overlay" id="modelEditorModal">
+        <div class="modal">
+            <div class="modal-header"><span id="modelEditorTitle">✏️ 编辑模型</span><button class="modal-close" id="modelEditorClose">&times;</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>模型ID</label><input type="text" id="mEditModelId" placeholder="如 mimo-v2.5-free"></div>
+                <div class="form-group"><label>模型名称</label><input type="text" id="mEditName" placeholder="如 Mimo V2.5"></div>
+                <div class="form-group"><label>显示标签</label><input type="text" id="mEditLabel" placeholder="如 🎭 Mimo V2.5"></div>
+                <div class="form-group"><label>每千Token价格（积分）</label><input type="number" id="mEditCreditsPer1k" value="1" min="1"></div>
+                <div class="form-group"><label>优先级（数值越小越靠前）</label><input type="number" id="mEditPriority" value="100" min="0"></div>
+                <div class="form-group"><label>API 地址（可选，留空用默认）</label><input type="text" id="mEditApiBase" placeholder="https://opencode.ai/zen/v1/chat/completions"></div>
+                <div class="form-group"><label>API Key（可选）</label><input type="text" id="mEditApiKey" placeholder="自定义模型需填写对应API Key"></div>
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="mEditEnabled" checked> 启用
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" id="modelEditorCancel">取消</button>
+                <button class="btn-add" id="modelEditorSave">💾 保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 智能体管理弹窗 -->
+    <div class="modal-overlay" id="manageModal">
+        <div class="modal">
+            <div class="modal-header"><span>⚙️ 智能体管理</span><button class="modal-close" id="modalClose">&times;</button></div>
+            <div class="modal-body" id="agentList"></div>
+            <div class="modal-footer"><button class="btn-add" id="addAgentBtn">+ 新建智能体</button></div>
+        </div>
+    </div>
+
+    <!-- 智能体编辑器 -->
+    <div class="modal-overlay" id="editorModal">
+        <div class="modal modal-wide">
+            <div class="modal-header"><span id="editorTitle">✏️ 编辑智能体</span><button class="modal-close" id="editorClose">&times;</button></div>
+            <div class="modal-body">
+                <div class="form-grid">
+                    <div class="form-group"><label>ID</label><input type="text" id="editId"></div>
+                    <div class="form-group"><label>名称</label><input type="text" id="editName"></div>
+                    <div class="form-group"><label>头像</label><input type="text" id="editAvatar" maxlength="10"></div>
+                    <div class="form-group"><label>称号</label><input type="text" id="editTitle"></div>
+                    <div class="form-group"><label>Model</label><input type="text" id="editModel" value="gpt-3.5-turbo"></div>
+                    <div class="form-group"><label>Temperature</label><input type="number" id="editTemp" step="0.05" min="0" max="2"></div>
+                </div>
+                <div class="form-group"><label>开场白</label><textarea id="editGreeting" rows="2"></textarea></div>
+                <div class="form-group"><label>系统提示词</label><textarea id="editPrompt" rows="6"></textarea></div>
+            </div>
+            <div class="modal-footer"><button class="btn-secondary" id="editorCancel">取消</button><button class="btn-add" id="editorSave">💾 保存</button></div>
+        </div>
+    </div>
+
+    <!-- 世界书管理弹窗 -->
+    <div class="modal-overlay" id="worldManageModal">
+        <div class="modal">
+            <div class="modal-header"><span>📖 世界书管理</span><button class="modal-close" id="worldManageClose">&times;</button></div>
+            <div class="modal-body">
+                <div id="worldManageGrid"></div>
+                <div class="mysub-section" id="mySubmissionsSection" style="margin-top:16px;">
+                    <div class="mysub-header">📝 我的投稿 <span id="mySubsCount"></span></div>
+                    <div id="mySubmissionsList"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-add" id="addWorldBtn">+ 新建世界书</button>
+                <button class="btn-add" id="addMySubBtn" style="margin-left:8px;">📤 新建投稿</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 世界书编辑器 -->
+    <div class="modal-overlay" id="worldEditorModal">
+        <div class="modal modal-wide">
+            <div class="modal-header"><span id="worldEditorTitle">✏️ 编辑世界书</span><button class="modal-close" id="worldEditorClose">&times;</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>世界名称</label><input type="text" id="wEditName" placeholder="如 迷雾酒馆"></div>
+                <div class="form-grid">
+                    <div class="form-group"><label>ID（唯一标识）</label><input type="text" id="wEditId" placeholder="misty-tavern"></div>
+                    <div class="form-group"><label>Emoji</label><input type="text" id="wEditEmoji" maxlength="5"></div>
+                    <div class="form-group"><label>类型标签</label><input type="text" id="wEditGenre" placeholder="中式奇幻"></div>
+                    <div class="form-group"><label>Temperature</label><input type="number" id="wEditTemp" step="0.05" min="0" max="2"></div>
+                </div>
+                <div class="form-group"><label>简介（选世界时展示）</label><textarea id="wEditDesc" rows="2"></textarea></div>
+                <div class="form-group">
+                    <label>系统提示词 ⭐（决定GM风格、世界规则、状态格式）</label>
+                    <textarea id="wEditPrompt" rows="10" placeholder="提示词注意事项：
+1. 开头写清楚世界观设定
+2. 明确要求AI每次回复末尾输出【状态】行，如【状态】HP:100/100 金钱:50 位置:酒馆 物品:剑
+3. 要求用【数字】给出2-4个选项
+4. 最后留一个【0】自定义行动供玩家自由输入"></textarea>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group"><label>Max Tokens（越大故事越丰富）</label><input type="number" id="wEditMaxTokens" value="700"></div>
+                </div>
+                <div class="form-group"><small style="color:#6b5a4a;">💡 提示：在 system_prompt 中务必写明「每次回复末尾输出【状态】...」，状态面板才能自动更新</small></div>
+            </div>
+            <div class="modal-footer"><button class="btn-secondary" id="worldEditorCancel">取消</button><button class="btn-add" id="worldEditorSave">💾 保存</button></div>
+        </div>
+    </div>
+
+    <!-- 投稿世界书 -->
+    <div class="modal-overlay" id="submitWorldModal">
+        <div class="modal modal-wide">
+            <div class="modal-header"><span>📝 投稿世界书</span><button class="modal-close" id="submitWorldClose">&times;</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>世界名称</label><input type="text" id="sEditName" placeholder="如 暗影迷宫"></div>
+                <div class="form-grid">
+                    <div class="form-group"><label>ID（唯一标识，英文）</label><input type="text" id="sEditId" placeholder="shadow-maze"></div>
+                    <div class="form-group"><label>Emoji</label><input type="text" id="sEditEmoji" maxlength="5" value="🌟"></div>
+                    <div class="form-group"><label>类型标签</label><input type="text" id="sEditGenre" placeholder="中式奇幻"></div>
+                    <div class="form-group"><label>Temperature</label><input type="number" id="sEditTemp" step="0.05" min="0" max="2" value="0.85"></div>
+                </div>
+                <div class="form-group"><label>简介</label><textarea id="sEditDesc" rows="2" placeholder="世界书简介..."></textarea></div>
+                <div class="form-group">
+                    <label>系统提示词 ⭐</label>
+                    <textarea id="sEditPrompt" rows="8" placeholder="在此填写完整的世界设定和规则...&#10;提示：在末尾写明每次输出【状态】和【关系】行"></textarea>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group"><label>Max Tokens</label><input type="number" id="sEditMaxTokens" value="700"></div>
+                </div>
+                <button class="btn-add" id="submitWorldSaveBtn" style="width:100%;">📤 提交审核</button>
+                <div class="form-hint">提交后管理员审核通过即可上架，你可以在「我的投稿」中查看状态</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 个人API设置 -->
+    <div class="modal-overlay" id="apiSettingsModal">
+        <div class="modal">
+            <div class="modal-header"><span>🔌 自有 API 配置</span><button class="modal-close" id="apiSettingsClose">&times;</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>API 提供商</label>
+                    <select id="personalApiProvider" onchange="fillApiUrl()">
+                        <option value="">请选择 API 提供商</option>
+                        <option value="siliconflow">SiliconFlow（硅基流动）</option>
+                        <option value="custom">自定义地址</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>API 地址</label><input type="text" id="personalApiUrl" placeholder="https://api.siliconflow.cn/v1/chat/completions"></div>
+                <div class="form-group"><label>API Key</label><input type="text" id="personalApiKey" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></div>
+                <button class="btn-add" id="savePersonalApiBtn" style="width:100%;">💾 保存并免费使用</button>
+                <div class="form-hint" id="personalApiMsg" style="margin-top:10px;"></div>
+                <div class="personal-api-info">
+                    <div class="pai-title">还没有自己的 API Key？</div>
+                    <div class="pai-text">
+                        推荐注册 <strong>SiliconFlow（硅基流动）</strong>，注册即送 14 元免费额度，支持 DeepSeek、Qwen、GLM 等数十种模型。
+                    </div>
+                    <a class="pai-btn" href="https://cloud.siliconflow.cn/i/4lJqxxYP" target="_blank" rel="noopener">🚀 前往 SiliconFlow 注册</a>
+                    <div class="pai-hint">注册后创建 API Key，填到上方即可免费使用</div>
+                </div>
+                <div class="form-hint" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+                    ⚡ 设置后所有 AI 调用使用你的 API，不计积分
+                    <br>
+                    <button class="btn-secondary" id="clearPersonalApiBtn" style="margin-top:6px;font-size:12px;">🗑️ 清除并恢复计费模式</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 修改密码弹窗 -->
+    <div class="modal-overlay" id="changePwdModal">
+        <div class="modal">
+            <div class="modal-header"><span>🔑 修改密码</span><button class="modal-close" id="changePwdClose">&times;</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>原密码</label><input type="password" id="oldPassword" placeholder="请输入原密码"></div>
+                <div class="form-group"><label>新密码</label><input type="password" id="newPassword" placeholder="至少6位"></div>
+                <div class="form-group"><label>确认新密码</label><input type="password" id="newPassword2" placeholder="再次输入新密码"></div>
+                <button class="btn-add" id="changePwdSubmit" style="width:100%;">💾 确认修改</button>
+                <div class="form-hint" id="changePwdMsg" style="margin-top:10px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 充值弹窗 -->
+    <div class="modal-overlay" id="redeemModal">
+        <div class="modal">
+            <div class="modal-header"><span>💳 积分充值</span><button class="modal-close" id="redeemClose">&times;</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>输入充值密钥</label><input type="text" id="redeemCode" placeholder="如 TAVERN-XXXXXXXXXXXX" style="text-transform:uppercase;"></div>
+                <button class="btn-add" id="redeemSubmitBtn" style="width:100%;">⚡ 立即兑换</button>
+                <div class="form-hint" id="redeemMsg" style="margin-top:10px;"></div>
+                <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);text-align:center;">
+                    <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">🙏 感谢支持！扫码赞赏</div>
+                    <img src="/static/reward_qrcode.png" alt="赞赏码" style="max-width:200px;border-radius:8px;border:1px solid var(--border);">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 故事回看弹窗 -->
+    <div class="modal-overlay" id="reviewModal" style="display:none;">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <span id="reviewTitle">故事回顾</span>
+                <button class="modal-close" id="reviewClose">&times;</button>
+            </div>
+            <div class="modal-body story-review-body" id="reviewContent"></div>
+        </div>
+    </div>
+
+    <!-- Version -->
+    <div class="version-display" id="versionDisplay" style="position:fixed;bottom:8px;right:12px;font-size:11px;color:var(--text-dim);opacity:0.6;">v2.0.4</div>
+
+    <!-- Toast 通知 -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- RPG 加载遮罩 -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-box">
+            <div class="loading-icon">🎲</div>
+            <div class="loading-text" id="loadingText">AI 正在编织故事...</div>
+            <div class="loading-bar">
+                <div class="loading-bar-inner" id="loadingBarInner"></div>
+            </div>
+            <div class="loading-pct" id="loadingPct">0%</div>
+            <div class="loading-sub" id="loadingSub">请稍候</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+    <script src="/static/script.js"></script>
+</body>
+</html>

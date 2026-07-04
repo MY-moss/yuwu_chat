@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>围观跑团 - 云雾酒馆</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="tavern-bg"></div>
+    <div class="particles"></div>
+    <div class="container" style="padding-top:40px;">
+        <div class="header">
+            <div class="sign">
+                <div class="sign-text">云雾酒馆</div>
+                <div class="sign-sub">Spectator Mode</div>
+            </div>
+            <div style="color:var(--gold-dim);font-size:13px;">👀 正在围观</div>
+        </div>
+        <div class="game-status-bar">
+            <span id="gwn"></span>
+            <span id="gpn" style="color:var(--text-dim);"></span>
+            <span style="color:var(--text-dim);font-size:12px;">⏱ 每2秒自动刷新</span>
+        </div>
+        <div class="game-main">
+            <div class="story-panel">
+                <div class="story-box" style="max-height:500px;"><div class="story-text" id="st"></div></div>
+            </div>
+            <div class="side-panel">
+                <div class="status-panel">
+                    <div class="status-title">📊 角色状态</div>
+                    <div class="status-content" id="ss"><div class="status-empty">加载中...</div></div>
+                </div>
+                <div class="storyline-panel">
+                    <div class="storyline-header"><span>📜 故事线</span></div>
+                    <div class="storyline-body" id="sl"><div class="status-empty">加载中...</div></div>
+                </div>
+                <div class="storyline-panel" id="rp" style="display:none;">
+                    <div class="storyline-header"><span>🤝 关系</span></div>
+                    <div class="storyline-body" id="rb"><div class="status-empty">暂无</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+    <script>
+    const token = '{{ token }}';
+    function renderMd(t){if(!t)return'';try{if(typeof marked!=='undefined'){marked.setOptions({breaks:true,gfm:true});return DOMPurify.sanitize(marked.parse(t));}}catch(e){}return DOMPurify.sanitize(String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));}
+    function escapeHtml(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+    function parseStatVal(v){if(!v||!v.trim())return'<div class="status-empty" style="padding:2px 0;">空</div>';const items=String(v).split(/\s+/).filter(s=>s.includes(':'));if(!items.length)return'<div class="status-item"><span class="status-value">'+escapeHtml(v)+'</span></div>';return items.map(i=>{let n=i.indexOf(':'),label=i.slice(0,n).trim(),value=i.slice(n+1).trim(),cls='status-value';const num=parseFloat(value);if(!isNaN(num))cls+=num<=20?' danger':num>=80?' success':' highlight';return'<div class="status-item"><span class="status-label">'+escapeHtml(label)+'</span><span class="'+cls+'">'+escapeHtml(value)+'</span></div>';}).join('');}
+    function renderSections(sec){if(!sec||!Object.keys(sec).length)return'<div class="status-empty">暂无</div>';let h='';for(const[k,v]of Object.entries(sec)){if(k==='关系_map'||typeof v==='object')continue;h+='<div class="status-section"><div class="status-section-title">'+escapeHtml(k)+'</div>'+parseStatVal(v)+'</div>';}const rm=sec['关系_map'];if(rm&&Object.keys(rm).length){h+='<div class="status-section"><div class="status-section-title">关系</div>';h+=Object.entries(rm).map(([kk,vv])=>'<div class="status-item"><span class="status-label">'+escapeHtml(kk)+'</span><span class="status-value highlight">'+escapeHtml(vv)+'</span></div>').join('');h+='</div>';}return h||'<div class="status-empty">暂无</div>';}
+    async function poll(){
+        try{
+            const r=await fetch('/api/rpg/shared/'+token);const d=await r.json();
+            if(d.error){document.getElementById('st').textContent='会话已结束';return;}
+            document.getElementById('gwn').textContent=(d.world.emoji||'')+' '+d.world.name;
+            document.getElementById('gpn').textContent='🧑 '+d.player_name;
+            document.getElementById('st').innerHTML=renderMd(d.last_story||'');
+            document.getElementById('ss').innerHTML=renderSections(d.sections)||'<div class="status-empty">暂无</div>';
+            if(d.relationship&&Object.keys(d.relationship).length){document.getElementById('rp').style.display='';document.getElementById('rb').innerHTML=Object.entries(d.relationship).map(([k,v])=>'<div class="status-item"><span class="status-label">'+escapeHtml(k)+'</span><span class="status-value highlight">'+escapeHtml(v)+'</span></div>').join('');}
+            if(d.storyline&&d.storyline.length){document.getElementById('sl').innerHTML=d.storyline.map((e,i)=>{let is=i===d.storyline.length-1;return'<div class="sl-entry'+(is?' current':'')+'"><div class="sl-round">#'+e.round+'</div><div class="sl-content"><div class="sl-choice"><span class="sl-choice-tag">▸</span>'+escapeHtml(e.choice)+'</div><div class="sl-story">'+renderMd(e.story||'')+'</div></div></div>';}).join('');}
+        }catch(e){}
+    }
+    poll();setInterval(poll,2000);
+    </script>
+</body>
+</html>
