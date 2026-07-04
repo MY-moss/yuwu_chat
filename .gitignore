@@ -33,3 +33,6 @@ release/instance/
 
 # Windows special files
 nul
+
+# Documentation (internal use only)
+docs/
