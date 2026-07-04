@@ -167,6 +167,10 @@ _agents_lock = threading.Lock()
 _worlds_lock = threading.Lock()
 _ratings_lock = threading.Lock()
 _submissions_lock = threading.Lock()
+_login_attempts = {}
+_login_lock = threading.Lock()
+_LOGIN_RATE_LIMIT = 5
+_LOGIN_RATE_WINDOW = 60
 
 
 def save_sessions():
@@ -516,6 +520,14 @@ def parse_usage(resp_json):
         return 0, 0, 0
 
 
+def estimate_tokens(text):
+    if not text:
+        return 0
+    chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    other_chars = len(text) - chinese_chars
+    return chinese_chars + (other_chars // 4) * 3 + (other_chars % 4 > 0) * 1
+
+
 def calc_token_cost(tokens, credits_per_1k):
     if credits_per_1k <= 0:
         return 0
@@ -593,11 +605,26 @@ def login():
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
 
+    client_ip = request.remote_addr
+
+    with _login_lock:
+        now = time.time()
+        attempts = _login_attempts.get(client_ip, [])
+        attempts = [t for t in attempts if now - t < _LOGIN_RATE_WINDOW]
+        if len(attempts) >= _LOGIN_RATE_LIMIT:
+            return jsonify({"error": f"登录尝试过于频繁，请 {_LOGIN_RATE_WINDOW} 秒后再试"}), 429
+        attempts.append(now)
+        _login_attempts[client_ip] = attempts
+
     user = User.query.filter_by(username=username).first()
     if not user or not user.check_password(password):
         return jsonify({"error": "用户名或密码错误"}), 401
 
     login_user(user)
+
+    with _login_lock:
+        _login_attempts.pop(client_ip, None)
+
     return jsonify({"message": "登录成功", "user": user.to_dict()})
 
 
@@ -1344,6 +1371,7 @@ def view_shared_session(share_token):
 
 
 @app.route("/api/rpg/shared-sessions")
+@login_required
 def list_shared_sessions():
     with _sessions_lock:
         worlds = load_worlds()
@@ -1681,7 +1709,7 @@ def rpg_act_stream():
                 sections[k] = v
         state_str = sections.get("状态", "")
         personal = using_personal_api()
-        total_tokens = len(full_text) // 2
+        total_tokens = estimate_tokens(full_text)
         cost = max(0, total_tokens * credits_per_1k // 1000) if (not personal and credits_per_1k > 0) else 0
         if not personal and credits_per_1k > 0 and not deduct_credits(current_user, cost):
             yield f"data: {_json.dumps({'type':'error','text':f'积分不足（需要 {cost} 积分）'})}\n\n"
@@ -1839,14 +1867,16 @@ def branch_session(session_id):
     sess["last_story"] = last_entry.get("story", "")
     last_sections = last_entry.get("sections", {})
     sess["last_state"] = last_sections.get("状态", "") if isinstance(last_sections, dict) else str(last_sections)
+    sess["sections"] = last_sections
 
     # Truncate message history: keep system prompt + user/assistant pairs up to target
     history = sess.get("history", [])
     # history[0] = system prompt, then pairs of (assistant, user)
+    # target=0 means keep system + 1st round (assistant+user), total 3 messages
     kept = [history[0]] if history else []
     pair_count = 0
     for msg in history[1:]:
-        if pair_count >= target * 2:
+        if pair_count >= (target + 1) * 2:
             break
         kept.append(msg)
         pair_count += 1
@@ -1859,7 +1889,7 @@ def branch_session(session_id):
         "last_story": sess["last_story"],
         "last_state": sess["last_state"],
         "storyline": sess["storyline"],
-        "relationships": sess.get("relationships", {})
+        "relationships": sess.get("sections", {}).get("关系_map", {})
     })
 
 

@@ -2298,3 +2298,10 @@ $('specExitBtn').addEventListener('click', () => {
 });
 
 // Show share button (now handled inside startGame/resumeGame)
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (spectateTimer) { clearInterval(spectateTimer); spectateTimer = null; }
+        if (spectateRefreshTimer) { clearInterval(spectateRefreshTimer); spectateRefreshTimer = null; }
+    }
+});
