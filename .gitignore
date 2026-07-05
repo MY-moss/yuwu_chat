@@ -31,5 +31,5 @@ release/instance/
 # Windows special files
 nul
 
-# Documentation (internal use only)
-docs/
+# AI evaluation report (auto-generated, not version controlled)
+docs/AI行为评估报告.md
