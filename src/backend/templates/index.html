@@ -205,7 +205,7 @@
                         </div>
                     </div>
                     <div class="story-panel">
-                        <div class="story-box" id="storyBox"><div class="story-text" id="storyText"></div></div>
+                        <div class="story-box" id="storyBox"><div class="story-text" id="storyText"></div><div class="story-hint" id="storyHint" style="text-align:center;font-size:12px;color:var(--text-dim);padding:8px;border-top:1px solid var(--border);">↑ 滚动查看完整故事</div></div>
                         <div class="choices-area" id="choicesArea"></div>
                     </div>
                     <div class="right-panel" id="rightPanel">
@@ -332,13 +332,13 @@
         <div class="modal">
             <div class="modal-header"><span id="modelEditorTitle">✏️ 编辑模型</span><button class="modal-close" id="modelEditorClose">&times;</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>模型ID</label><input type="text" id="mEditModelId" placeholder="如 mimo-v2.5-free"></div>
-                <div class="form-group"><label>模型名称</label><input type="text" id="mEditName" placeholder="如 Mimo V2.5"></div>
-                <div class="form-group"><label>显示标签</label><input type="text" id="mEditLabel" placeholder="如 🎭 Mimo V2.5"></div>
+                <div class="form-group"><label>模型ID</label><input type="text" id="mEditModelId" placeholder="如 mimo-v2.5-free" maxlength="100"></div>
+                <div class="form-group"><label>模型名称</label><input type="text" id="mEditName" placeholder="如 Mimo V2.5" maxlength="100"></div>
+                <div class="form-group"><label>显示标签</label><input type="text" id="mEditLabel" placeholder="如 🎭 Mimo V2.5" maxlength="100"></div>
                 <div class="form-group"><label>每千Token价格（积分）</label><input type="number" id="mEditCreditsPer1k" value="1" min="1"></div>
                 <div class="form-group"><label>优先级（数值越小越靠前）</label><input type="number" id="mEditPriority" value="100" min="0"></div>
-                <div class="form-group"><label>API 地址（可选，留空用默认）</label><input type="text" id="mEditApiBase" placeholder="https://opencode.ai/zen/v1/chat/completions"></div>
-                <div class="form-group"><label>API Key（可选）</label><input type="text" id="mEditApiKey" placeholder="自定义模型需填写对应API Key"></div>
+                <div class="form-group"><label>API 地址（可选，留空用默认）</label><input type="text" id="mEditApiBase" placeholder="https://opencode.ai/zen/v1/chat/completions" maxlength="500"></div>
+                <div class="form-group"><label>API Key（可选）</label><input type="text" id="mEditApiKey" placeholder="自定义模型需填写对应API Key" maxlength="500"></div>
                 <div class="form-group">
                     <label style="display:flex;align-items:center;gap:8px;">
                         <input type="checkbox" id="mEditEnabled" checked> 启用
@@ -367,10 +367,9 @@
             <div class="modal-header"><span id="editorTitle">✏️ 编辑智能体</span><button class="modal-close" id="editorClose">&times;</button></div>
             <div class="modal-body">
                 <div class="form-grid">
-                    <div class="form-group"><label>ID</label><input type="text" id="editId"></div>
-                    <div class="form-group"><label>名称</label><input type="text" id="editName"></div>
-                    <div class="form-group"><label>头像</label><input type="text" id="editAvatar" maxlength="10"></div>
-                    <div class="form-group"><label>称号</label><input type="text" id="editTitle"></div>
+                    <div class="form-group"><label>ID</label><input type="text" id="editId" maxlength="100"></div>
+                    <div class="form-group"><label>名称</label><input type="text" id="editName" maxlength="100"></div>
+                    <div class="form-group"><label>称号</label><input type="text" id="editTitle" maxlength="100"></div>
                     <div class="form-group"><label>Model</label><input type="text" id="editModel" value="gpt-3.5-turbo"></div>
                     <div class="form-group"><label>Temperature</label><input type="number" id="editTemp" step="0.05" min="0" max="2"></div>
                 </div>
@@ -404,7 +403,7 @@
         <div class="modal modal-wide">
             <div class="modal-header"><span id="worldEditorTitle">✏️ 编辑世界书</span><button class="modal-close" id="worldEditorClose">&times;</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>世界名称</label><input type="text" id="wEditName" placeholder="如 迷雾酒馆"></div>
+                <div class="form-group"><label>世界名称</label><input type="text" id="wEditName" placeholder="如 迷雾酒馆" maxlength="100"></div>
                 <div class="form-grid">
                     <div class="form-group"><label>ID（唯一标识）</label><input type="text" id="wEditId" placeholder="misty-tavern"></div>
                     <div class="form-group"><label>Emoji</label><input type="text" id="wEditEmoji" maxlength="5"></div>
@@ -468,9 +467,9 @@
 
                 <div id="addUserModelForm" style="display:none;margin-top:12px;padding:12px;background:var(--bg-input);border-radius:8px;border:1px dashed var(--border);">
                     <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:10px;">➕ 添加自定义模型</div>
-                    <div class="form-group"><label>模型 ID</label><input type="text" id="newModelId" placeholder="如: qwen2.5-7b-chat"></div>
-                    <div class="form-group"><label>模型名称</label><input type="text" id="newModelName" placeholder="如: Qwen 2.5 7B"></div>
-                    <div class="form-group"><label>显示标签</label><input type="text" id="newModelLabel" placeholder="如: 🦉 Qwen 2.5"></div>
+                    <div class="form-group"><label>模型 ID</label><input type="text" id="newModelId" placeholder="如: qwen2.5-7b-chat" maxlength="100"></div>
+                    <div class="form-group"><label>模型名称</label><input type="text" id="newModelName" placeholder="如: Qwen 2.5 7B" maxlength="100"></div>
+                    <div class="form-group"><label>显示标签</label><input type="text" id="newModelLabel" placeholder="如: 🦉 Qwen 2.5" maxlength="100"></div>
                     <div class="form-group">
                         <label>API 提供商（快速填充）</label>
                         <select id="newModelProvider" onchange="fillNewModelApiUrl()">
@@ -483,8 +482,8 @@
                             <option value="custom">自定义地址</option>
                         </select>
                     </div>
-                    <div class="form-group"><label>API 地址</label><input type="text" id="newModelApiBase" placeholder="https://api.siliconflow.cn/v1/chat/completions"></div>
-                    <div class="form-group"><label>API Key</label><input type="text" id="newModelApiKey" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></div>
+                    <div class="form-group"><label>API 地址</label><input type="text" id="newModelApiBase" placeholder="https://api.siliconflow.cn/v1/chat/completions" maxlength="500"></div>
+                    <div class="form-group"><label>API Key</label><input type="text" id="newModelApiKey" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" maxlength="500"></div>
                     <div style="display:flex;gap:8px;margin-top:10px;">
                         <button class="btn-add" id="saveNewModelBtn" style="flex:1;font-size:13px;">💾 保存</button>
                         <button class="btn-secondary" id="cancelNewModelBtn" style="font-size:13px;">取消</button>
@@ -509,10 +508,10 @@
             <div class="modal-header"><span>✏️ 编辑我的模型</span><button class="modal-close" id="userModelEditorClose">&times;</button></div>
             <div class="modal-body">
                 <div class="form-group"><label>模型 ID</label><input type="text" id="umEditId" disabled></div>
-                <div class="form-group"><label>模型名称</label><input type="text" id="umEditName"></div>
-                <div class="form-group"><label>显示标签</label><input type="text" id="umEditLabel"></div>
-                <div class="form-group"><label>API 地址（可选，留空用默认）</label><input type="text" id="umEditApiBase" placeholder="https://api.siliconflow.cn/v1/chat/completions"></div>
-                <div class="form-group"><label>API Key（可选）</label><input type="text" id="umEditApiKey" placeholder="留空保持不变"></div>
+                <div class="form-group"><label>模型名称</label><input type="text" id="umEditName" maxlength="100"></div>
+                <div class="form-group"><label>显示标签</label><input type="text" id="umEditLabel" maxlength="100"></div>
+                <div class="form-group"><label>API 地址（可选，留空用默认）</label><input type="text" id="umEditApiBase" placeholder="https://api.siliconflow.cn/v1/chat/completions" maxlength="500"></div>
+                <div class="form-group"><label>API Key（可选）</label><input type="text" id="umEditApiKey" placeholder="留空保持不变" maxlength="500"></div>
                 <button class="btn-add" id="umEditSaveBtn" style="width:100%;">💾 保存修改</button>
                 <div class="form-hint" id="umEditMsg" style="margin-top:10px;"></div>
             </div>

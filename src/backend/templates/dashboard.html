@@ -153,9 +153,10 @@
     <script>
         let refreshTimer = null;
         
+        var HTML_ENTITY={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
         function escapeHtml(s) {
             if (s == null) return '';
-            return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            return String(s).replace(/[&<>"']/g, function(c){return HTML_ENTITY[c];});
         }
 
         async function fetchStats() {

@@ -8,7 +8,7 @@ body {
     --bg-input: #1e1814;
     --border: #5a4a3a;
     --text: #e8ddd0;
-    --text-dim: #9a8a7a;
+    --text-dim: #b8a898;
     --text-bright: #f5e6d0;
     --gold: #d4a84b;
     --gold-dim: #a08030;
@@ -802,6 +802,7 @@ body {
 }
 .world-card {
     background: linear-gradient(145deg, rgba(58,46,36,0.95), rgba(42,32,24,0.98));
+    -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
     border: 1px solid var(--border);
     border-radius: 16px;
@@ -1012,6 +1013,7 @@ body {
 }
 .story-box::-webkit-scrollbar { width: 6px; }
 .story-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.story-text:empty + .story-hint { display: none; }
 
 .story-text {
     font-size: 14px;
@@ -1623,6 +1625,7 @@ body {
     z-index: 100;
     justify-content: center;
     align-items: center;
+    -webkit-backdrop-filter: blur(4px);
     backdrop-filter: blur(4px);
     animation: fadeIn 0.2s ease;
 }
@@ -2197,6 +2200,7 @@ body {
     z-index: 200;
     justify-content: center;
     align-items: center;
+    -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
 }
 .loading-overlay.show { display: flex; }
@@ -2341,6 +2345,7 @@ body {
     opacity: 0; transform: translateY(-20px);
     transition: all 0.3s ease; pointer-events: auto;
     box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
 }
 .toast.show { opacity: 1; transform: translateY(0); }

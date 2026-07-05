@@ -252,7 +252,7 @@ def load_sessions():
                         rpg_sessions[sid] = s
                 elif isinstance(sessions_data, list):
                     for s in sessions_data:
-                        rpg_sessions[s.get('session_id', str(id(s)))] = s
+                        rpg_sessions[s.get('session_id', str(uuid.uuid4()))] = s
             except Exception as e:
                 print(f"[ERROR]: {e}", flush=True)
 

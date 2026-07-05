@@ -3,6 +3,7 @@ let currentMode = 'chat';
 let rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
 let currentUser = null;
 let isShared = false;
+let rpgAbortController = null;
 
 // ===== Toast =====
 function toast(msg, type) {
@@ -901,57 +902,75 @@ async function startGame(worldId) {
 
     showLoading('📖 世界正在苏醒...', 'AI 主持人正在构建初始场景');
 
-    const data = await api('/api/rpg/start', {
-        method: 'POST',
-        body: JSON.stringify({ world_id: worldId, player_name: name, model: getSelectedModel() })
-    });
+    rpgAbortController = new AbortController();
 
-    if (data.error) {
-        hideLoading();
-        if (data.error === '积分不足') {
-            alert('积分不足，请联系管理员充值');
-            worldSelectScreen.style.display = 'block';
-            gameScreen.style.display = 'none';
-        } else {
-            storyText.textContent = '❌ ' + data.error;
+    try {
+        const data = await api('/api/rpg/start', {
+            method: 'POST',
+            body: JSON.stringify({ world_id: worldId, player_name: name, model: getSelectedModel() }),
+            signal: rpgAbortController.signal
+        });
+
+        if (data.error) {
+            hideLoading();
+            if (data.error === '积分不足') {
+                alert('积分不足，请联系管理员充值');
+                worldSelectScreen.style.display = 'block';
+                gameScreen.style.display = 'none';
+            } else {
+                storyText.textContent = '❌ ' + data.error;
+            }
+            return;
         }
-        return;
+
+        rpgState.sessionId = data.session_id;
+        rpgState.world = data.world;
+        rpgState.playerName = data.player_name;
+        rpgState.storyline = data.storyline || [];
+        rpgState.sections = data.sections || null;
+        gameWorldName.textContent = `${data.world.emoji} ${data.world.name}`;
+        gamePlayerName.textContent = `🧑 ${data.player_name}`;
+        $('gameRound').textContent = `第${Math.max(1, data.storyline ? data.storyline.length : 0)}轮`;
+        if (shareBtn) { shareBtn.style.display = 'block'; shareBtn.textContent = '🔗 分享'; isShared = false; }
+
+        if (data.credits_left !== undefined) {
+            currentUser.credits = data.credits_left;
+            updateUserInfo();
+        }
+
+        hideLoading();
+        renderStory(data.story);
+        renderStatus(data.sections || data.state || '');
+        renderChoices(data.story);
+        renderStoryline();
+        renderRelationships(data.relationships);
+        if (shareBtn) shareBtn.style.display = 'block';
+    } catch (e) {
+        if (e.name === 'AbortError') {
+            console.log('[INFO] startGame aborted by user');
+            return;
+        }
+        console.error('[ERROR] startGame:', e);
+        hideLoading();
+        storyText.textContent = '❌ 游戏启动失败，请重试';
+    } finally {
+        rpgAbortController = null;
     }
-
-    rpgState.sessionId = data.session_id;
-    rpgState.world = data.world;
-    rpgState.playerName = data.player_name;
-    rpgState.storyline = data.storyline || [];
-    rpgState.sections = data.sections || null;
-    gameWorldName.textContent = `${data.world.emoji} ${data.world.name}`;
-    gamePlayerName.textContent = `🧑 ${data.player_name}`;
-    $('gameRound').textContent = `第${Math.max(1, data.storyline ? data.storyline.length : 0)}轮`;
-    if (shareBtn) { shareBtn.style.display = 'block'; shareBtn.textContent = '🔗 分享'; isShared = false; }
-
-    if (data.credits_left !== undefined) {
-        currentUser.credits = data.credits_left;
-        updateUserInfo();
-    }
-
-    hideLoading();
-    renderStory(data.story);
-    renderStatus(data.sections || data.state || '');
-    renderChoices(data.story);
-    renderStoryline();
-    renderRelationships(data.relationships);
-    if (shareBtn) shareBtn.style.display = 'block';
 }
 
 async function actGame(choice) {
     if (!rpgState.sessionId) return;
     showLoading('🎭 故事继续展开...', '');
 
+    rpgAbortController = new AbortController();
+
     try {
         const resp = await fetch('/api/rpg/act/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ session_id: rpgState.sessionId, choice, model: getSelectedModel() })
+            body: JSON.stringify({ session_id: rpgState.sessionId, choice, model: getSelectedModel() }),
+            signal: rpgAbortController.signal
         });
         const reader = resp.body.getReader();
         const dec = new TextDecoder();
@@ -1009,27 +1028,39 @@ async function actGame(choice) {
             hideLoading();
         }
     } catch (e) {
+        if (e.name === 'AbortError') {
+            console.log('[INFO] actGame aborted by user');
+            return;
+        }
         hideLoading();
+        if (!rpgState.sessionId) return;
         // Fallback to non-streaming
         storyText.textContent = '⏳ 流式连接失败，使用普通模式...';
-        const data = await api('/api/rpg/act', {
-            method: 'POST',
-            body: JSON.stringify({ session_id: rpgState.sessionId, choice, model: getSelectedModel() })
-        });
-        hideLoading();
-        if (data.error) {
-            if (data.error === '积分不足') { alert('积分不足'); return; }
-            storyText.textContent = '❌ ' + data.error; return;
+        try {
+            const data = await api('/api/rpg/act', {
+                method: 'POST',
+                body: JSON.stringify({ session_id: rpgState.sessionId, choice, model: getSelectedModel() })
+            });
+            hideLoading();
+            if (data.error) {
+                if (data.error === '积分不足') { alert('积分不足'); return; }
+                storyText.textContent = '❌ ' + data.error; return;
+            }
+            if (data.credits_left !== undefined) { currentUser.credits = data.credits_left; updateUserInfo(); }
+            rpgState.storyline = data.storyline || [];
+            rpgState.sections = data.sections || null;
+            storyText.innerHTML = renderMarkdown(data.story || '');
+            renderStatus(data.sections || data.state || '');
+            renderChoices(data.story || '');
+            renderStoryline();
+            renderRelationships(data.relationships);
+            $('gameRound').textContent = `第${Math.max(1, rpgState.storyline.length)}轮`;
+        } catch (fallbackErr) {
+            console.error('[ERROR] actGame fallback:', fallbackErr);
+            storyText.textContent = '❌ 故事展开失败，请重试';
         }
-        if (data.credits_left !== undefined) { currentUser.credits = data.credits_left; updateUserInfo(); }
-        rpgState.storyline = data.storyline || [];
-        rpgState.sections = data.sections || null;
-        storyText.innerHTML = renderMarkdown(data.story || '');
-        renderStatus(data.sections || data.state || '');
-        renderChoices(data.story || '');
-        renderStoryline();
-        renderRelationships(data.relationships);
-        $('gameRound').textContent = `第${Math.max(1, rpgState.storyline.length)}轮`;
+    } finally {
+        rpgAbortController = null;
     }
 }
 
@@ -1466,6 +1497,10 @@ $('exitCancelBtn').addEventListener('click', () => {
 $('exitConfirmBtn').addEventListener('click', () => {
     $('exitConfirmModal').classList.remove('show');
     hideLoading();
+    if (rpgAbortController) {
+        rpgAbortController.abort();
+        rpgAbortController = null;
+    }
     rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
     gameScreen.style.display = 'none';
     worldSelectScreen.style.display = 'block';
