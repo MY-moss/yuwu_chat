@@ -1,6 +1,78 @@
 {
     "history": [
         {
+            "version": "v2.1.4",
+            "old_version": "v2.1.3",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "API配置迁移：将全局API配置迁移至模型级别，每个用户模型可独立配置API地址和API Key；修复聊天/跑团模式切换底部tab不同步问题；添加模型编辑功能；故事加载进度条优化；分享功能修复",
+            "timestamp": "2026-07-04 17:30:00"
+        },
+        {
+            "version": "v2.1.3",
+            "old_version": "v2.1.2",
+            "type": "minor",
+            "type_desc": "大版本更新",
+            "description": "新增用户自定义模型系统：用户可在自有API配置中添加模型，使用自有API不计费；管理员模型API Key永久保护；聊天/跑团模式切换修复；UI布局优化",
+            "timestamp": "2026-07-04 15:30:00"
+        },
+        {
+            "version": "v2.1.2",
+            "old_version": "v2.1.1",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "第24轮修复：修复H2(流式Token计数)、H3(登录速率限制)、H7/H8(branch_session问题)、H15(list_shared_sessions登录限制)、H18(setInterval清理)",
+            "timestamp": "2026-07-05 00:00:00"
+        },
+        {
+            "version": "v2.1.1",
+            "old_version": "v2.1.0",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "第23轮修复：修复H1(histories无锁保护)、H9(chat孤儿消息)、H17(catch{}静默吞异常)、H28(CDN SRI校验)",
+            "timestamp": "2026-07-05 00:00:00"
+        },
+        {
+            "version": "v2.1.0",
+            "old_version": "v2.0.9",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "第22轮修复：修复H5(reset_db.py硬编码弱密码)、H6(rpg_sessions无锁保护)、H11(API错误正文回传)、H27(target=_blank安全)",
+            "timestamp": "2026-07-05 00:00:00"
+        },
+        {
+            "version": "v2.0.9",
+            "old_version": "v2.0.8",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "第21轮修复+评估优化：修复call_ai/load_agents/load_worlds缺少try/except；改进评估脚本自动扫描",
+            "timestamp": "2026-07-05 00:00:00"
+        },
+        {
+            "version": "v2.0.8",
+            "old_version": "v2.0.7",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "第21轮修复：添加CSRF保护、escape_html转义函数、script.js/feedback.js CSRF token支持",
+            "timestamp": "2026-07-05 00:00:00"
+        },
+        {
+            "version": "v2.0.7",
+            "old_version": "v2.0.6",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "第21轮审计：新增6项问题(M65-M66/L50-L53)，同步CSRF修复",
+            "timestamp": "2026-07-05 00:00:00"
+        },
+        {
+            "version": "v2.0.6",
+            "old_version": "v2.0.4",
+            "type": "patch",
+            "type_desc": "小版本更新",
+            "description": "第19-20轮：复核清洗、Critical归零、XSS修复、scripts/tavern/release审计修复、文档清洗",
+            "timestamp": "2026-07-04 00:00:00"
+        },
+        {
             "version": "v2.0.4",
             "old_version": "v2.0.3",
             "type": "patch",

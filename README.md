@@ -125,24 +125,6 @@ ai_chat/
 - 可以对游戏体验进行评价
 - 提交建议和问题
 
-## � 开发模式
-
-### 修改代码
-
-所有代码修改应在 `src/backend/` 目录进行，修改后会自动同步到 `release/` 目录。
-
-### 运行测试
-
-```bash
-python scripts/test_rpg.py
-```
-
-### 重置数据库
-
-```bash
-python scripts/reset_db.py
-```
-
 ## 📄 许可证
 
 MIT License

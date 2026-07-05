@@ -22,12 +22,15 @@
             </div>
             <div id="loginForm" class="auth-form">
                 <div class="form-group">
-                    <label>用户名</label>
-                    <input type="text" id="loginUsername" placeholder="请输入用户名">
+                    <label for="loginUsername">用户名</label>
+                    <input type="text" id="loginUsername" placeholder="请输入用户名" autocomplete="username">
                 </div>
                 <div class="form-group">
-                    <label>密码</label>
-                    <input type="password" id="loginPassword" placeholder="请输入密码">
+                    <label for="loginPassword">密码</label>
+                    <div class="pwd-wrapper">
+                        <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+                        <button type="button" class="pwd-toggle" data-target="loginPassword" title="显示/隐藏密码">👁</button>
+                    </div>
                 </div>
                 <button class="btn-add auth-btn" id="loginBtn">登录</button>
                 <div class="auth-hint">管理员账户已配置，请联系管理员获取登录信息</div>
@@ -35,16 +38,22 @@
 
             <div id="registerForm" class="auth-form" style="display:none;">
                 <div class="form-group">
-                    <label>用户名</label>
-                    <input type="text" id="regUsername" placeholder="请输入用户名">
+                    <label for="regUsername">用户名</label>
+                    <input type="text" id="regUsername" placeholder="请输入用户名" autocomplete="username">
                 </div>
                 <div class="form-group">
-                    <label>密码</label>
-                    <input type="password" id="regPassword" placeholder="至少6位密码">
+                    <label for="regPassword">密码</label>
+                    <div class="pwd-wrapper">
+                        <input type="password" id="regPassword" placeholder="至少6位密码" autocomplete="new-password">
+                        <button type="button" class="pwd-toggle" data-target="regPassword" title="显示/隐藏密码">👁</button>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label>确认密码</label>
-                    <input type="password" id="regPassword2" placeholder="再次输入密码">
+                    <label for="regPassword2">确认密码</label>
+                    <div class="pwd-wrapper">
+                        <input type="password" id="regPassword2" placeholder="再次输入密码" autocomplete="new-password">
+                        <button type="button" class="pwd-toggle" data-target="regPassword2" title="显示/隐藏密码">👁</button>
+                    </div>
                 </div>
                 <button class="btn-add auth-btn" id="registerBtn">注册</button>
                 <div class="auth-hint">注册即送 100 积分</div>
@@ -57,35 +66,35 @@
     <!-- ===== 主界面 ===== -->
     <div id="mainScreen" class="container" style="display:none;">
         <div class="header">
-            <div class="sign">
-                <div class="sign-text">云雾酒馆</div>
-                <div class="sign-sub">Chat · RPG</div>
-            </div>
-            <div class="header-right">
+            <div class="header-top">
+                <div class="sign">
+                    <div class="sign-text">云雾酒馆</div>
+                    <div class="sign-sub">Chat · RPG</div>
+                </div>
                 <div class="user-info" id="userInfo">
                     <span class="credits" id="creditsDisplay">💰 100</span>
                     <span class="credits free-mode" id="freeModeDisplay" style="display:none;">🆓 免费</span>
                     <span class="username" id="usernameDisplay">用户</span>
-                    <div class="font-size-group" style="display:inline-flex;align-items:center;gap:4px;margin:0 6px;">
-                        <button class="font-size-btn" data-size="small" title="小号">A-</button>
-                        <button class="font-size-btn active" data-size="normal" title="默认">A</button>
-                        <button class="font-size-btn" data-size="large" title="大号">A+</button>
+                </div>
+            </div>
+            <div class="header-bottom">
+                <div class="header-controls">
+                    <select id="modelSelect" class="model-select" title="切换AI模型"></select>
+                    <div class="mode-tabs">
+                        <button class="mode-tab active" data-mode="chat">💬 聊天</button>
+                        <button class="mode-tab" data-mode="rpg">🎲 跑团</button>
+                        <div class="mode-tab-indicator"></div>
                     </div>
+                </div>
+                <div class="header-actions">
                     <button class="btn-sm api-btn" id="apiSettingBtn">🔌 API</button>
                     <button class="btn-sm redeem-btn" id="redeemBtn">💳 充值</button>
-                    <button class="btn-sm logout-btn" id="logoutBtn">🚪 退出</button>
                     <button class="btn-sm" id="dashboardBtn" style="display:none;">📊 大屏</button>
                     <button class="btn-sm admin-btn" id="adminBtn" style="display:none;">⚙️ 管理</button>
-                    <button class="btn-sm" id="changePwdBtn" title="修改密码">🔑 修改密码</button>
+                    <button class="btn-sm" id="changePwdBtn" title="修改密码">🔑</button>
+                    <a href="/feedback" class="btn-sm feedback-nav-btn" title="用户反馈">📋</a>
+                    <button class="btn-sm logout-btn" id="logoutBtn">🚪 退出</button>
                 </div>
-                
-                <select id="modelSelect" class="model-select" title="切换AI模型"></select>
-                <div class="mode-tabs">
-                    <button class="mode-tab active" data-mode="chat">💬 聊天</button>
-                    <button class="mode-tab" data-mode="rpg">🎲 跑团</button>
-                    <div class="mode-tab-indicator"></div>
-                </div>
-                <a href="/feedback" class="btn-sm feedback-nav-btn" title="用户反馈">📋 反馈</a>
             </div>
         </div>
 
@@ -100,7 +109,7 @@
             <div class="input-area">
                 <div class="slash-menu" id="slashMenu"></div>
                 <div class="input-wrapper">
-                    <input type="text" id="messageInput" placeholder="对掌柜说说你的心事... 输入 / 查看命令" autofocus>
+                    <textarea id="messageInput" placeholder="对掌柜说说你的心事... 输入 / 查看命令（Shift+Enter 换行）" rows="1" autofocus></textarea>
                     <button id="sendBtn"><span class="btn-icon">🍺</span> 来一杯</button>
                 </div>
                 <div class="hint" id="agentHint">选择一位角色聊聊</div>
@@ -322,11 +331,11 @@
     </div>
 
     <div class="mobile-tab-bar" id="mobileTabBar">
-        <button class="mobile-tab-item" data-mode="chat">
+        <button class="mobile-tab-item active" data-mode="chat">
             <span class="mobile-tab-icon">💬</span>
             <span class="mobile-tab-label">聊天</span>
         </button>
-        <button class="mobile-tab-item active" data-mode="rpg">
+        <button class="mobile-tab-item" data-mode="rpg">
             <span class="mobile-tab-icon">🎲</span>
             <span class="mobile-tab-label">跑团</span>
         </button>
@@ -466,33 +475,60 @@
 
     <!-- 个人API设置 -->
     <div class="modal-overlay" id="apiSettingsModal">
-        <div class="modal">
+        <div class="modal" style="max-width:700px;">
             <div class="modal-header"><span>🔌 自有 API 配置</span><button class="modal-close" id="apiSettingsClose">&times;</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>API 提供商</label>
-                    <select id="personalApiProvider" onchange="fillApiUrl()">
-                        <option value="">请选择 API 提供商</option>
-                        <option value="siliconflow">SiliconFlow（硅基流动）</option>
-                        <option value="custom">自定义地址</option>
-                    </select>
+                <div class="admin-panel-header" style="margin-bottom:12px;">
+                    <span>🤖 我的模型列表</span>
+                    <button class="btn-add btn-sm" id="addUserModelBtn">+ 添加模型</button>
                 </div>
-                <div class="form-group"><label>API 地址</label><input type="text" id="personalApiUrl" placeholder="https://api.siliconflow.cn/v1/chat/completions"></div>
-                <div class="form-group"><label>API Key</label><input type="text" id="personalApiKey" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></div>
-                <button class="btn-add" id="savePersonalApiBtn" style="width:100%;">💾 保存并免费使用</button>
-                <div class="form-hint" id="personalApiMsg" style="margin-top:10px;"></div>
-                <div class="personal-api-info">
+                <div class="admin-list" id="userModelsList" style="max-height:320px;"></div>
+
+                <div id="addUserModelForm" style="display:none;margin-top:12px;padding:12px;background:var(--bg-input);border-radius:8px;border:1px dashed var(--border);">
+                    <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:10px;">➕ 添加自定义模型</div>
+                    <div class="form-group"><label>模型 ID</label><input type="text" id="newModelId" placeholder="如: qwen2.5-7b-chat"></div>
+                    <div class="form-group"><label>模型名称</label><input type="text" id="newModelName" placeholder="如: Qwen 2.5 7B"></div>
+                    <div class="form-group"><label>显示标签</label><input type="text" id="newModelLabel" placeholder="如: 🦉 Qwen 2.5"></div>
+                    <div class="form-group">
+                        <label>API 提供商（快速填充）</label>
+                        <select id="newModelProvider" onchange="fillNewModelApiUrl()">
+                            <option value="">请选择 API 提供商（可选）</option>
+                            <option value="siliconflow">SiliconFlow（硅基流动）</option>
+                            <option value="custom">自定义地址</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>API 地址</label><input type="text" id="newModelApiBase" placeholder="https://api.siliconflow.cn/v1/chat/completions"></div>
+                    <div class="form-group"><label>API Key</label><input type="text" id="newModelApiKey" placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"></div>
+                    <div style="display:flex;gap:8px;margin-top:10px;">
+                        <button class="btn-add" id="saveNewModelBtn" style="flex:1;font-size:13px;">💾 保存</button>
+                        <button class="btn-secondary" id="cancelNewModelBtn" style="font-size:13px;">取消</button>
+                    </div>
+                </div>
+
+                <div class="personal-api-info" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
                     <div class="pai-title">还没有自己的 API Key？</div>
                     <div class="pai-text">
                         推荐注册 <strong>SiliconFlow（硅基流动）</strong>，注册即送 14 元免费额度，支持 DeepSeek、Qwen、GLM 等数十种模型。
                     </div>
                     <a class="pai-btn" href="https://cloud.siliconflow.cn/i/4lJqxxYP" target="_blank" rel="noopener">🚀 前往 SiliconFlow 注册</a>
-                    <div class="pai-hint">注册后创建 API Key，填到上方即可免费使用</div>
+                    <div class="pai-hint">注册后创建 API Key，在添加模型时填入即可免费使用，不计平台积分</div>
                 </div>
-                <div class="form-hint" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
-                    ⚡ 设置后所有 AI 调用使用你的 API，不计积分
-                    <br>
-                    <button class="btn-secondary" id="clearPersonalApiBtn" style="margin-top:6px;font-size:12px;">🗑️ 清除并恢复计费模式</button>
-                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 用户模型编辑弹窗 -->
+    <div class="modal-overlay" id="userModelEditorModal">
+        <div class="modal">
+            <div class="modal-header"><span>✏️ 编辑我的模型</span><button class="modal-close" id="userModelEditorClose">&times;</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label>模型 ID</label><input type="text" id="umEditId" disabled></div>
+                <div class="form-group"><label>模型名称</label><input type="text" id="umEditName"></div>
+                <div class="form-group"><label>显示标签</label><input type="text" id="umEditLabel"></div>
+                <div class="form-group"><label>API 地址（可选，留空用默认）</label><input type="text" id="umEditApiBase" placeholder="https://api.siliconflow.cn/v1/chat/completions"></div>
+                <div class="form-group"><label>API Key（可选）</label><input type="text" id="umEditApiKey" placeholder="留空保持不变"></div>
+                <button class="btn-add" id="umEditSaveBtn" style="width:100%;">💾 保存修改</button>
+                <div class="form-hint" id="umEditMsg" style="margin-top:10px;"></div>
             </div>
         </div>
     </div>
@@ -554,6 +590,42 @@
             </div>
             <div class="loading-pct" id="loadingPct">0%</div>
             <div class="loading-sub" id="loadingSub">请稍候</div>
+            <div class="loading-status" id="loadingStatus"></div>
+        </div>
+    </div>
+
+    <!-- 退出确认弹窗 -->
+    <div class="modal-overlay" id="exitConfirmModal">
+        <div class="modal exit-modal">
+            <div class="modal-header">🚪 确认离开</div>
+            <div class="modal-body">
+                <div class="exit-icon">🔔</div>
+                <p>确定要离开当前的冒险吗？</p>
+                <p class="exit-hint">你的进度将会自动保存，随时可以继续</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-cancel" id="exitCancelBtn">继续冒险</button>
+                <button class="btn btn-danger" id="exitConfirmBtn">返回酒馆</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分享成功弹窗 -->
+    <div class="modal-overlay" id="shareSuccessModal">
+        <div class="modal share-modal">
+            <div class="modal-header">✅ 分享成功</div>
+            <div class="modal-body">
+                <div class="share-icon">🔗</div>
+                <p>你的故事已分享到围观广场！</p>
+                <div class="share-link-box">
+                    <input type="text" class="share-url-input" id="shareUrlInput" readonly>
+                    <button class="btn btn-sm btn-copy" id="copyShareUrlBtn">📋 复制链接</button>
+                </div>
+                <p class="share-hint">其他人可以通过此链接围观你的冒险</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="shareCloseBtn">知道了</button>
+            </div>
         </div>
     </div>
 

@@ -1,17 +1,6 @@
 {
   "agents": [
     {
-      "id": "opencode",
-      "name": "OpenCode AI",
-      "avatar": "🤖",
-      "title": "AI 助手",
-      "tavern": "云雾酒馆",
-      "greeting": "你好！我是 OpenCode AI 助手，就是你当前在命令行里对话的那个我。<br>直接问我任何问题吧，编程、学习、闲聊都行。",
-      "system_prompt": "你是一个有用的AI助手。回答要简洁、准确、有帮助。使用中文回复。",
-      "model": "mimo-v2.5-free",
-      "temperature": 0.7
-    },
-    {
       "id": "bartender",
       "name": "老陈",
       "avatar": "🧔",

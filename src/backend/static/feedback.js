@@ -169,7 +169,7 @@ async function loadFeedbackList() {
     const data = await authApi(url);
 
     if (data.error) {
-        $('fbList').innerHTML = `<div class="fb-empty">加载失败: ${data.error}</div>`;
+        $('fbList').innerHTML = `<div class="fb-empty">加载失败: ${escapeHtml(data.error)}</div>`;
         return;
     }
 

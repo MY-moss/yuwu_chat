@@ -1,3 +1,74 @@
-{
-  "logs": []
-}
+[
+  {
+    "time": "2026-07-04T15:56:53.785713",
+    "user_id": 1,
+    "username": "admin",
+    "model": "DeepSeek-V4-Flash",
+    "tokens": 71,
+    "cost": 1,
+    "endpoint": "chat"
+  },
+  {
+    "time": "2026-07-04T15:59:17.361446",
+    "user_id": 1,
+    "username": "admin",
+    "model": "DeepSeek-V4-Flash",
+    "tokens": 113,
+    "cost": 2,
+    "endpoint": "chat"
+  },
+  {
+    "time": "2026-07-04T15:59:27.823110",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 143,
+    "cost": 2,
+    "endpoint": "chat"
+  },
+  {
+    "time": "2026-07-04T15:59:38.787906",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 1264,
+    "cost": 11,
+    "endpoint": "chat"
+  },
+  {
+    "time": "2026-07-04T16:04:16.864262",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 8611,
+    "cost": 69,
+    "endpoint": "rpg_start"
+  },
+  {
+    "time": "2026-07-04T16:11:09.858178",
+    "user_id": 1,
+    "username": "admin",
+    "model": "mimo-v2.5-free",
+    "tokens": 381,
+    "cost": 1,
+    "endpoint": "chat"
+  },
+  {
+    "time": "2026-07-04T17:56:58.034925",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 7808,
+    "cost": 8,
+    "endpoint": "rpg_start"
+  },
+  {
+    "time": "2026-07-04T17:59:41.271215",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 0,
+    "cost": 1,
+    "endpoint": "rpg_start"
+  }
+]

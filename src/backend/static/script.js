@@ -42,6 +42,7 @@ const gamePlayerName = $('gamePlayerName');
 const loadingOverlay = $('loadingOverlay');
 const loadingText = $('loadingText');
 const loadingSub = $('loadingSub');
+const loadingStatus = $('loadingStatus');
 
 function showLoading(text, sub) {
     loadingText.textContent = text || 'AI 正在编织故事...';
@@ -52,6 +53,7 @@ function showLoading(text, sub) {
     bar.style.width = '0%';
     const pct = $('loadingPct');
     if (pct) pct.textContent = '0%';
+    if (loadingStatus) loadingStatus.textContent = '';
 }
 
 function hideLoading() {
@@ -63,6 +65,10 @@ function updateProgress(pct, label) {
     if (bar) bar.style.width = Math.min(100, pct) + '%';
     const pctEl = $('loadingPct');
     if (pctEl) pctEl.textContent = (label || Math.round(pct) + '%');
+}
+
+function updateLoadingStatus(text) {
+    if (loadingStatus) loadingStatus.textContent = text || '';
 }
 
 // ===== Auth =====
@@ -106,6 +112,9 @@ function showMainScreen() {
     loadWorlds();
     document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
     document.querySelector('.mode-tab[data-mode="chat"]').classList.add('active');
+    document.querySelectorAll('.mobile-tab-item[data-mode]').forEach(t => t.classList.remove('active'));
+    const mobileChatTab = document.querySelector('.mobile-tab-item[data-mode="chat"]');
+    if (mobileChatTab) mobileChatTab.classList.add('active');
     currentMode = 'chat';
     document.getElementById('chatMode').style.display = 'flex';
     document.getElementById('rpgMode').style.display = 'none';
@@ -245,16 +254,26 @@ async function populateModels() {
         const res = await fetch('/api/models');
         const models = await res.json();
         const hasPersonal = currentUser && currentUser.has_personal_api;
-        const standard = models.filter(m => (m.credits_per_1k || 1) > 0);
-        const freeModels = models.filter(m => (m.credits_per_1k || 1) === 0);
+        
+        const systemPaid = models.filter(m => m.source === 'system' && (m.credits_per_1k || 1) > 0);
+        const systemFree = models.filter(m => m.source === 'system' && (m.credits_per_1k || 1) === 0);
+        const userModels = models.filter(m => m.source === 'personal');
+        
         let html = '';
-        for (const m of standard) {
+        for (const m of systemPaid) {
             html += `<option value="${escapeHtml(m.model_id)}">${escapeHtml(m.label)} (${m.credits_per_1k}积分/千Token)</option>`;
         }
-        if (hasPersonal && freeModels.length > 0) {
+        if (systemFree.length > 0) {
             html += '<option disabled>──────────</option>';
-            for (const m of freeModels) {
-                html += `<option value="${escapeHtml(m.model_id)}">${escapeHtml(m.label)} (🆓 需个人API)</option>`;
+            for (const m of systemFree) {
+                html += `<option value="${escapeHtml(m.model_id)}">${escapeHtml(m.label)} (🆓 免费)</option>`;
+            }
+        }
+        if (userModels.length > 0) {
+            html += '<option disabled>──────────</option>';
+            html += '<option disabled>🔑 我的自有API模型 (不计费)</option>';
+            for (const m of userModels) {
+                html += `<option value="${escapeHtml(m.model_id)}">${escapeHtml(m.label)} (🔑 自有API)</option>`;
             }
         }
         sel.innerHTML = html;
@@ -290,6 +309,21 @@ function setupEventListeners() {
     $('loginBtn').addEventListener('click', login);
     $('registerBtn').addEventListener('click', register);
     $('logoutBtn').addEventListener('click', logout);
+
+    // Password visibility toggles
+    document.querySelectorAll('.pwd-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = $(btn.dataset.target);
+            if (!target) return;
+            if (target.type === 'password') {
+                target.type = 'text';
+                btn.textContent = '🙈';
+            } else {
+                target.type = 'password';
+                btn.textContent = '👁';
+            }
+        });
+    });
     
     $('changePwdBtn').addEventListener('click', () => {
         $('changePwdModal').classList.add('show');
@@ -309,34 +343,38 @@ function setupEventListeners() {
             hideLoading();
             document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
+            // 同步移动端 tab 状态
+            document.querySelectorAll('.mobile-tab-item[data-mode]').forEach(t => t.classList.remove('active'));
+            const mobileTab = document.querySelector(`.mobile-tab-item[data-mode="${tab.dataset.mode}"]`);
+            if (mobileTab) mobileTab.classList.add('active');
             currentMode = tab.dataset.mode;
-            
+
             const chatModeEl = document.getElementById('chatMode');
             const rpgModeEl = document.getElementById('rpgMode');
-            
+
             if (currentMode === 'chat') {
                 chatModeEl.style.display = 'flex';
                 rpgModeEl.style.display = 'none';
             } else if (currentMode === 'rpg') {
                 chatModeEl.style.display = 'none';
                 rpgModeEl.style.display = 'flex';
+                loadWorlds();
                 if (rpgState.sessionId) {
                     gameScreen.style.display = 'flex';
                     worldSelectScreen.style.display = 'none';
+                    if (!storyText.textContent || storyText.textContent.includes('服务器内部错误')) {
+                        resumeGame(rpgState.sessionId).catch(e => {
+                            console.error('[ERROR] resumeGame on tab switch:', e);
+                            rpgState.sessionId = null;
+                            gameScreen.style.display = 'none';
+                            worldSelectScreen.style.display = 'block';
+                        });
+                    }
                 } else {
                     gameScreen.style.display = 'none';
                     worldSelectScreen.style.display = 'block';
                 }
             }
-        });
-    });
-
-    // Font Size Buttons
-    document.querySelectorAll('.font-size-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const size = btn.dataset.size;
-            document.body.classList.remove('font-small', 'font-normal', 'font-large');
-            document.body.classList.add(`font-${size}`);
         });
     });
 
@@ -347,6 +385,47 @@ function setupEventListeners() {
             const panelEl = document.getElementById(panel);
             if (panelEl) {
                 panelEl.classList.toggle('collapsed');
+            }
+        });
+    });
+
+    // Mobile Tab Bar
+    document.querySelectorAll('.mobile-tab-item[data-mode]').forEach(tab => {
+        tab.addEventListener('click', () => {
+            hideLoading();
+            document.querySelectorAll('.mobile-tab-item').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            currentMode = tab.dataset.mode;
+            
+            const chatModeEl = document.getElementById('chatMode');
+            const rpgModeEl = document.getElementById('rpgMode');
+            
+            if (currentMode === 'chat') {
+                chatModeEl.style.display = 'flex';
+                rpgModeEl.style.display = 'none';
+                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+                document.querySelector('.mode-tab[data-mode="chat"]').classList.add('active');
+            } else if (currentMode === 'rpg') {
+                chatModeEl.style.display = 'none';
+                rpgModeEl.style.display = 'flex';
+                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+                document.querySelector('.mode-tab[data-mode="rpg"]').classList.add('active');
+                loadWorlds();
+                if (rpgState.sessionId) {
+                    gameScreen.style.display = 'flex';
+                    worldSelectScreen.style.display = 'none';
+                    if (!storyText.textContent || storyText.textContent.includes('服务器内部错误')) {
+                        resumeGame(rpgState.sessionId).catch(e => {
+                            console.error('[ERROR] resumeGame on tab switch:', e);
+                            rpgState.sessionId = null;
+                            gameScreen.style.display = 'none';
+                            worldSelectScreen.style.display = 'block';
+                        });
+                    }
+                } else {
+                    gameScreen.style.display = 'none';
+                    worldSelectScreen.style.display = 'block';
+                }
             }
         });
     });
@@ -440,49 +519,90 @@ function updateAgentHint() {
 agentSelect.addEventListener('change', updateAgentHint);
 
 sendBtn.addEventListener('click', sendMessage);
-messageInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+messageInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+messageInput.addEventListener('input', () => {
+    messageInput.style.height = 'auto';
+    messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+});
 
 async function sendMessage() {
     const msg = messageInput.value.trim();
     if (!msg) return;
     const agentId = agentSelect.value;
     messageInput.value = '';
+    messageInput.style.height = 'auto';
     appendMessage(msg, 'user');
     sendBtn.disabled = true;
     sendBtn.textContent = '⏳ 思考中...';
+    const thinkingEl = appendMessage('', 'agent', agentSelect.selectedOptions[0]?.textContent || '');
+    const thinkDots = createThinkingIndicator();
+    thinkingEl.querySelector('.md-body').appendChild(thinkDots);
     try {
         const data = await api('/api/chat', {
             method: 'POST',
             body: JSON.stringify({ message: msg, agent_id: agentId, model: getSelectedModel() })
         });
+        thinkDots.remove();
         if (data.error) {
             if (data.error === '积分不足') {
                 alert('积分不足，请联系管理员充值');
+                thinkingEl.remove();
             } else {
-                appendMessage('❌ ' + data.error, 'agent');
+                thinkingEl.querySelector('.md-body').innerHTML = '❌ ' + escapeHtml(data.error);
             }
         } else {
-            appendMessage(data.reply || '（没有回应）', 'agent');
+            thinkingEl.querySelector('.md-body').innerHTML = renderMarkdown(data.reply || '（没有回应）');
             if (data.credits_left !== undefined) {
                 currentUser.credits = data.credits_left;
                 updateUserInfo();
             }
         }
+    } catch (err) {
+        thinkDots.remove();
+        thinkingEl.querySelector('.md-body').innerHTML = '❌ 网络错误，请重试';
     } finally {
         sendBtn.disabled = false;
         sendBtn.innerHTML = '<span class="btn-icon">🍺</span> 来一杯';
+        chatBox.scrollTop = chatBox.scrollHeight;
     }
+}
+
+function createThinkingIndicator() {
+    const wrap = document.createElement('span');
+    wrap.className = 'thinking-dots';
+    wrap.innerHTML = '<span></span><span></span><span></span>';
+    return wrap;
 }
 
 function appendMessage(text, role, name) {
     const div = document.createElement('div');
     div.className = `msg ${role}`;
-    if (role === 'agent' && name) {
-        const nm = document.createElement('div');
-        nm.className = 'msg-name';
-        nm.textContent = name;
-        div.appendChild(nm);
+    const header = document.createElement('div');
+    header.className = 'msg-header';
+    const avatar = document.createElement('span');
+    avatar.className = 'msg-avatar';
+    if (role === 'agent') {
+        avatar.textContent = name ? name.charAt(0) : '🤖';
+        if (name) {
+            const nm = document.createElement('span');
+            nm.className = 'msg-name';
+            nm.textContent = name;
+            header.appendChild(nm);
+        }
+    } else {
+        avatar.textContent = '🧑';
     }
+    header.insertBefore(avatar, header.firstChild);
+    const time = document.createElement('span');
+    time.className = 'msg-time';
+    time.textContent = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    header.appendChild(time);
+    div.appendChild(header);
     const content = document.createElement('div');
     content.className = 'md-body';
     if (role === 'agent') {
@@ -493,6 +613,7 @@ function appendMessage(text, role, name) {
     div.appendChild(content);
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
+    return div;
 }
 
 // ===== Sessions =====
@@ -566,37 +687,47 @@ window.deleteSession = async function(e, sid) {
 };
 
 async function resumeGame(sessionId) {
-    const data = await api(`/api/rpg/session/${sessionId}`);
-    if (data.error) return;
-    showLoading('🔄 恢复游戏中...', data.player_name);
-    worldSelectScreen.style.display = 'none';
-    gameScreen.style.display = 'flex';
-    personalContent.innerHTML = '<div class="status-empty">恢复中...</div>';
-
-    rpgState.sessionId = sessionId;
-    rpgState.playerName = data.player_name;
-    rpgState.world = { id: data.world_id, emoji: '📖', name: '加载中...' };
     try {
-        const worlds = await api('/api/rpg/worlds');
-        const w = worlds.find(x => x.id === data.world_id);
-        if (w) rpgState.world = w;
-    } catch(e) {}
-    gameWorldName.textContent = `${rpgState.world.emoji} ${rpgState.world.name}`;
-    gamePlayerName.textContent = `🧑 ${data.player_name}`;
-    $('gameRound').textContent = `第${Math.max(1, data.storyline ? data.storyline.length : 0)}轮`;
+        const data = await api(`/api/rpg/session/${sessionId}`);
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+        showLoading('🔄 恢复游戏中...', data.player_name);
+        worldSelectScreen.style.display = 'none';
+        gameScreen.style.display = 'flex';
+        personalContent.innerHTML = '<div class="status-empty">恢复中...</div>';
 
-    hideLoading();
-    renderStory(data.last_story || '');
-    renderStatus(data.sections || data.last_state || '');
-    renderChoices(data.last_story || '');
-    rpgState.storyline = data.storyline || [];
-    renderStoryline();
-    renderRelationships(data.relationships);
-    // Sync share button state
-    isShared = !!data.share_token;
-    if (shareBtn) {
-        shareBtn.style.display = 'block';
-        shareBtn.textContent = isShared ? '🔓 取消分享' : '🔗 分享';
+        rpgState.sessionId = sessionId;
+        rpgState.playerName = data.player_name;
+        rpgState.world = { id: data.world_id, emoji: '📖', name: '加载中...' };
+        try {
+            const worlds = await api('/api/rpg/worlds');
+            const w = worlds.find(x => x.id === data.world_id);
+            if (w) rpgState.world = w;
+        } catch(e) { console.error('Load world info failed:', e); }
+        gameWorldName.textContent = `${rpgState.world.emoji} ${rpgState.world.name}`;
+        gamePlayerName.textContent = `🧑 ${data.player_name}`;
+        $('gameRound').textContent = `第${Math.max(1, data.storyline ? data.storyline.length : 0)}轮`;
+
+        hideLoading();
+        renderStory(data.last_story || '');
+        renderStatus(data.sections || data.last_state || '');
+        renderChoices(data.last_story || '');
+        rpgState.storyline = data.storyline || [];
+        renderStoryline();
+        renderRelationships(data.relationships);
+        isShared = !!data.share_token;
+        if (shareBtn) {
+            shareBtn.style.display = 'block';
+            shareBtn.textContent = isShared ? '🔓 取消分享' : '🔗 分享';
+        }
+    } catch (e) {
+        console.error('[ERROR] resumeGame:', e);
+        hideLoading();
+        worldSelectScreen.style.display = 'block';
+        gameScreen.style.display = 'none';
+        alert('恢复游戏失败，请重试');
     }
 }
 
@@ -824,12 +955,16 @@ async function actGame(choice) {
                     storyText.innerHTML = renderMarkdown(full);
                     storyBox.scrollTop = storyBox.scrollHeight;
                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                    const estTotal = 800;
+                    const estTotal = Math.max(800, full.length * 2);
                     const pct = Math.min(95, full.length / estTotal * 100);
+                    const speed = elapsed > 0 ? (full.length / parseFloat(elapsed)).toFixed(0) : 0;
                     updateProgress(pct, Math.round(pct) + '% · ' + full.length + '字');
-                    $('loadingSub').textContent = '⏱ ' + elapsed + 's';
+                    $('loadingSub').textContent = '⏱ ' + elapsed + 's · ' + speed + '字/s';
+                    updateLoadingStatus('AI 正在生成故事...');
                 } else if (json.type === 'done') {
                     updateProgress(100, '100%');
+                    updateLoadingStatus('✓ 故事生成完成，正在渲染...');
+                    setTimeout(() => updateLoadingStatus(''), 500);
                     if (json.credits_left !== undefined) {
                         currentUser.credits = json.credits_left;
                         updateUserInfo();
@@ -842,6 +977,7 @@ async function actGame(choice) {
                     renderStoryline();
                     renderRelationships(json.relationships);
                     $('gameRound').textContent = `第${Math.max(1, (rpgState.storyline || []).length + 1)}轮`;
+                    hideLoading();
                 } else if (json.type === 'error') {
                     hideLoading();
                     storyText.textContent = '❌ ' + json.text;
@@ -849,10 +985,8 @@ async function actGame(choice) {
             }
         }
         // If stream ended without 'done' event, try to process accumulated text
-        if (full) {
-            hideLoading();
+        if (full && !document.querySelector('.loading-overlay.show')) {
             storyText.innerHTML = renderMarkdown(full);
-            // Generate choices from the text
             renderChoices(full);
             renderStoryline();
         } else if (!document.querySelector('.loading-overlay.show')) {
@@ -896,7 +1030,7 @@ function renderMarkdown(text) {
             }
             return escapeHtml(html);
         }
-    } catch (e) { /* fall through */ }
+    } catch (e) { console.error('Render markdown failed:', e); }
     // Fallback: basic HTML escape
     return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 }
@@ -1302,6 +1436,15 @@ function renderRelationships(rels) {
 }
 
 $('exitGameBtn').addEventListener('click', () => {
+    $('exitConfirmModal').classList.add('show');
+});
+
+$('exitCancelBtn').addEventListener('click', () => {
+    $('exitConfirmModal').classList.remove('show');
+});
+
+$('exitConfirmBtn').addEventListener('click', () => {
+    $('exitConfirmModal').classList.remove('show');
     hideLoading();
     rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
     gameScreen.style.display = 'none';
@@ -1734,7 +1877,8 @@ window.editAdminModel = async function(id) {
     $('mEditCreditsPer1k').value = m.credits_per_1k || m.price_per_call || 1;
     $('mEditPriority').value = m.priority || 100;
     $('mEditApiBase').value = m.api_base || '';
-    $('mEditApiKey').value = m.api_key || '';
+    $('mEditApiKey').value = m.has_api_key ? '********' : '';
+    $('mEditApiKey').placeholder = m.has_api_key ? '已保存，留空保持不变' : 'sk-xxxxxxxx';
     $('mEditEnabled').checked = m.enabled;
     modelEditorModal.classList.add('show');
 };
@@ -1878,74 +2022,176 @@ const apiSettingsClose = $('apiSettingsClose');
 
 apiSettingsBtn.addEventListener('click', async () => {
     await loadPersonalApiConfig();
+    await loadUserModels();
     apiSettingsModal.classList.add('show');
 });
 apiSettingsClose.addEventListener('click', () => apiSettingsModal.classList.remove('show'));
 apiSettingsModal.addEventListener('click', e => { if (e.target === apiSettingsModal) apiSettingsModal.classList.remove('show'); });
 
 async function loadPersonalApiConfig() {
-    try {
-        const res = await fetch('/api/auth/api-config');
-        const data = await res.json();
-        $('personalApiUrl').value = data.api_base || '';
-        $('personalApiKey').value = data.api_key || '';
-        $('personalApiMsg').textContent = data.has_personal_api ? '✅ 已配置自有 API，当前免费模式' : '';
-        updateFreeModeDisplay(data.has_personal_api);
-    } catch (e) {
-        console.error('[ERROR] loadPersonalApiConfig:', e);
-    }
+    // 已迁移至模型级别配置，此处保留空函数避免外部调用报错
 }
 
-window.fillApiUrl = function() {
-    const provider = $('personalApiProvider').value;
+window.fillNewModelApiUrl = function() {
+    const provider = $('newModelProvider').value;
     const urls = {
         siliconflow: 'https://api.siliconflow.cn/v1/chat/completions'
     };
     if (urls[provider]) {
-        $('personalApiUrl').value = urls[provider];
+        $('newModelApiBase').value = urls[provider];
     }
 }
 
-$('savePersonalApiBtn').addEventListener('click', async () => {
-    const api_base = $('personalApiUrl').value.trim();
-    const api_key = $('personalApiKey').value.trim();
-    if (!api_base || !api_key) {
-        $('personalApiMsg').textContent = '❌ 请填写 API 地址和 Key';
-        return;
-    }
-    $('savePersonalApiBtn').disabled = true;
-    $('personalApiMsg').textContent = '⏳ 保存中...';
+// ===== User Models Management =====
+async function loadUserModels() {
     try {
-        const data = await api('/api/auth/api-config', {
-            method: 'PUT',
-            body: JSON.stringify({ api_base, api_key })
-        });
-        if (data.status === 'ok') {
-            $('personalApiMsg').textContent = '✅ 保存成功！现在使用你的个人 API，不计积分';
-            currentUser.has_personal_api = true;
-            updateFreeModeDisplay(true);
-            updateUserInfo();
-            populateModels();
+        const res = await fetch('/api/auth/models');
+        const models = await res.json();
+        const list = $('userModelsList');
+        if (models.length === 0) {
+            list.innerHTML = '<div class="status-empty" style="padding:16px;">暂无自定义模型，点击上方"+ 添加模型"添加</div>';
+            return;
         }
-    } catch { $('personalApiMsg').textContent = '❌ 保存失败'; }
-    $('savePersonalApiBtn').disabled = false;
+        list.innerHTML = models.map(m => {
+            const apiStatus = m.api_base ? (m.has_api_key ? '🔗 已配置API' : '⚠️ 缺API Key') : '🔑 用默认API';
+            return `
+            <div class="admin-list-item">
+                <div class="ali-main">
+                    <div class="ali-name">${escapeHtml(m.label)}</div>
+                    <div class="ali-meta">ID: ${escapeHtml(m.model_id)} | 🔑 自有API模型（不计费）| ${apiStatus}</div>
+                </div>
+                <div class="ali-actions">
+                    <button onclick="editUserModel('${escapeHtml(m.model_id)}')" title="编辑">✏️</button>
+                    <button class="del" onclick="deleteUserModel('${escapeHtml(m.model_id)}')" title="删除">🗑️</button>
+                </div>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        console.error('[ERROR] loadUserModels:', e);
+        $('userModelsList').innerHTML = '<div class="status-empty" style="padding:16px;color:#ff6b6b;">加载失败</div>';
+    }
+}
+
+async function deleteUserModel(modelId) {
+    if (!confirm(`确定删除模型 "${modelId}" 吗？`)) return;
+    try {
+        await api(`/api/auth/models/${modelId}`, { method: 'DELETE' });
+        toast('模型已删除', 'success');
+        loadUserModels();
+        populateModels();
+    } catch {
+        toast('删除失败', 'error');
+    }
+}
+
+window.editUserModel = async function(modelId) {
+    try {
+        const res = await fetch('/api/auth/models');
+        const models = await res.json();
+        const m = models.find(x => x.model_id === modelId);
+        if (!m) { toast('模型不存在', 'error'); return; }
+        $('umEditId').value = m.model_id;
+        $('umEditName').value = m.name || '';
+        $('umEditLabel').value = m.label || '';
+        $('umEditApiBase').value = m.api_base || '';
+        $('umEditApiKey').value = m.has_api_key ? '********' : '';
+        $('umEditApiKey').placeholder = m.has_api_key ? '已保存，留空保持不变' : 'sk-xxxxxxxx';
+        $('umEditMsg').textContent = '';
+        $('userModelEditorModal').classList.add('show');
+    } catch (e) {
+        console.error('[ERROR] editUserModel:', e);
+        toast('加载模型信息失败', 'error');
+    }
+};
+
+$('userModelEditorClose').addEventListener('click', () => {
+    $('userModelEditorModal').classList.remove('show');
+});
+$('userModelEditorModal').addEventListener('click', e => {
+    if (e.target === $('userModelEditorModal')) $('userModelEditorModal').classList.remove('show');
 });
 
-$('clearPersonalApiBtn').addEventListener('click', async () => {
-    if (!confirm('确定清除自有 API 配置？之后将恢复计费模式。')) return;
-    const data = await api('/api/auth/api-config', {
-        method: 'PUT',
-        body: JSON.stringify({ api_base: '', api_key: '' })
-    });
-    if (data.status === 'ok') {
-        $('personalApiUrl').value = '';
-        $('personalApiKey').value = '';
-        $('personalApiMsg').textContent = '✅ 已清除，恢复计费模式';
-        currentUser.has_personal_api = false;
-        updateFreeModeDisplay(false);
+$('umEditSaveBtn').addEventListener('click', async () => {
+    const modelId = $('umEditId').value.trim();
+    const data = {
+        name: $('umEditName').value.trim(),
+        label: $('umEditLabel').value.trim(),
+        api_base: $('umEditApiBase').value.trim(),
+        api_key: $('umEditApiKey').value.trim()
+    };
+    if (!data.name || !data.label) {
+        $('umEditMsg').textContent = '❌ 名称和标签不能为空';
+        return;
+    }
+    $('umEditSaveBtn').disabled = true;
+    $('umEditMsg').textContent = '⏳ 保存中...';
+    try {
+        await api(`/api/auth/models/${modelId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+        toast('模型已更新', 'success');
+        $('userModelEditorModal').classList.remove('show');
+        loadUserModels();
         populateModels();
+    } catch (e) {
+        console.error('[ERROR] updateUserModel:', e);
+        $('umEditMsg').textContent = '❌ 保存失败';
+    }
+    $('umEditSaveBtn').disabled = false;
+});
+
+$('addUserModelBtn').addEventListener('click', () => {
+    $('addUserModelForm').style.display = 'block';
+    $('newModelId').value = '';
+    $('newModelName').value = '';
+    $('newModelLabel').value = '';
+    $('newModelProvider').value = '';
+    $('newModelApiBase').value = '';
+    $('newModelApiKey').value = '';
+    $('newModelId').focus();
+});
+
+$('cancelNewModelBtn').addEventListener('click', () => {
+    $('addUserModelForm').style.display = 'none';
+});
+
+$('saveNewModelBtn').addEventListener('click', async () => {
+    const modelId = $('newModelId').value.trim();
+    const name = $('newModelName').value.trim();
+    const label = $('newModelLabel').value.trim();
+    const apiBase = $('newModelApiBase').value.trim();
+    const apiKey = $('newModelApiKey').value.trim();
+
+    if (!modelId || !name || !label) {
+        toast('请填写模型ID、名称和标签', 'error');
+        return;
+    }
+    if ((apiBase && !apiKey) || (!apiBase && apiKey)) {
+        toast('API 地址和 Key 必须同时填写，或都留空', 'error');
+        return;
+    }
+
+    try {
+        await api('/api/auth/models', {
+            method: 'POST',
+            body: JSON.stringify({ model_id: modelId, name, label, api_base: apiBase, api_key: apiKey })
+        });
+        toast('模型添加成功', 'success');
+        $('addUserModelForm').style.display = 'none';
+        loadUserModels();
+        populateModels();
+    } catch (e) {
+        console.error('[ERROR] addUserModel:', e);
+        toast('添加失败，模型可能已存在', 'error');
     }
 });
+
+apiSettingsModal.addEventListener('click', e => {
+    if (e.target === apiSettingsModal) apiSettingsModal.classList.remove('show');
+});
+
+apiSettingsModal.addEventListener('show', loadUserModels);
 
 function updateFreeModeDisplay(hasApi) {
     const display = $('freeModeDisplay');
@@ -2167,23 +2413,52 @@ const shareBtn = $('shareBtn');
 shareBtn.addEventListener('click', async () => {
     if (!rpgState.sessionId) return;
     if (isShared) {
-        // Unshare
         const data = await api(`/api/rpg/session/${rpgState.sessionId}/unshare`, { method: 'POST' });
         if (data.error) { toast(data.error, 'error'); return; }
         isShared = false;
         shareBtn.textContent = '🔗 分享';
         toast('已取消分享，将从围观广场移除', 'info');
     } else {
-        // Share
         const data = await api(`/api/rpg/session/${rpgState.sessionId}/share`, { method: 'POST' });
         if (data.error) { toast(data.error, 'error'); return; }
         isShared = true;
         shareBtn.textContent = '🔓 取消分享';
-        toast('✅ 已分享到围观广场，所有人可见', 'success');
+        const shareUrl = data.share_url || '';
+        $('shareUrlInput').value = shareUrl;
+        $('shareSuccessModal').classList.add('show');
     }
-    // Auto-refresh spectator square
     const square = $('spectateSquare');
     if (square) loadSpectateSquare();
+});
+
+$('shareCloseBtn').addEventListener('click', () => {
+    $('shareSuccessModal').classList.remove('show');
+});
+
+$('copyShareUrlBtn').addEventListener('click', async () => {
+    const url = $('shareUrlInput').value;
+    if (!url) return;
+    try {
+        await navigator.clipboard.writeText(url);
+        toast('✅ 链接已复制到剪贴板', 'success');
+    } catch (e) {
+        const input = $('shareUrlInput');
+        input.select();
+        document.execCommand('copy');
+        toast('✅ 链接已复制到剪贴板', 'success');
+    }
+});
+
+$('shareSuccessModal').addEventListener('click', e => {
+    if (e.target === $('shareSuccessModal')) {
+        $('shareSuccessModal').classList.remove('show');
+    }
+});
+
+$('exitConfirmModal').addEventListener('click', e => {
+    if (e.target === $('exitConfirmModal')) {
+        $('exitConfirmModal').classList.remove('show');
+    }
 });
 
 // ===== Spectate (Watch others play) =====
@@ -2274,7 +2549,7 @@ async function spectatePoll() {
                 return '<div class="sl-entry'+(is?' current':'')+'"><div class="sl-round">#'+e.round+'</div><div class="sl-content"><div class="sl-choice"><span class="sl-choice-tag">▸</span>'+escapeHtml(e.choice)+'</div><div class="sl-story">'+escapeHtml(e.story||'')+'</div></div></div>';
             }).join('');
         }
-    } catch(e) {}
+    } catch(e) { console.error('Spectate render failed:', e); }
 }
 
 function renderSectionsHtml(sec) {

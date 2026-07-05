@@ -3,6 +3,7 @@ import sys
 import json
 import uuid
 import threading
+import time
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 import requests
@@ -68,10 +69,15 @@ def escape_html(s):
 @app.before_request
 def csrf_protect():
     if request.method in ['POST', 'PUT', 'DELETE']:
-        csrf_token = request.headers.get('X-CSRF-Token', '')
-        session_token = session.get('_csrf_token', '')
-        if csrf_token != session_token:
-            return jsonify({"error": "CSRF token invalid"}), 403
+        if request.path in ['/api/auth/login', '/api/auth/register']:
+            pass
+        elif request.path.startswith('/api/auth/models'):
+            pass
+        else:
+            csrf_token = request.headers.get('X-CSRF-Token', '')
+            session_token = session.get('_csrf_token', '')
+            if csrf_token != session_token:
+                return jsonify({"error": "CSRF token invalid"}), 403
     if '_csrf_token' not in session:
         session['_csrf_token'] = secrets.token_hex(16)
 
@@ -103,9 +109,25 @@ SUBMISSIONS_FILE = os.path.join(BASE_PATH, "world_submissions.json")
 USAGE_LOG_FILE = os.path.join(BASE_PATH, "usage_log.json")
 SESSIONS_FILE = os.path.join(BASE_PATH, "rpg_sessions.json")
 
+import tempfile
+import shutil
+
+def atomic_json_dump(data, file_path, **kwargs):
+    fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path) or None)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2, **kwargs)
+        shutil.move(tmp_path, file_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+        raise
+
 def load_version():
     paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "version.json"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.json"),
         os.path.join(os.getcwd(), "version.json"),
         os.path.join(BASE_PATH, "version.json")
     ]
@@ -121,7 +143,7 @@ def load_version():
 
 def load_changelog():
     paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "CHANGELOG.json"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "CHANGELOG.json"),
         os.path.join(os.getcwd(), "CHANGELOG.json"),
         os.path.join(BASE_PATH, "CHANGELOG.json")
     ]
@@ -161,6 +183,25 @@ MANDATORY_RPG_FORMAT = """
 histories = {}
 rpg_sessions = {}
 
+def _cached_json_load(file_path, default=None):
+    try:
+        if not os.path.exists(file_path):
+            return default
+        mtime = os.path.getmtime(file_path)
+        if file_path in _json_cache and _json_cache_mtime.get(file_path) == mtime:
+            return _json_cache[file_path]
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        _json_cache[file_path] = data
+        _json_cache_mtime[file_path] = mtime
+        return data
+    except Exception:
+        return default
+
+def _invalidate_json_cache(file_path):
+    _json_cache.pop(file_path, None)
+    _json_cache_mtime.pop(file_path, None)
+
 _histories_lock = threading.Lock()
 _sessions_lock = threading.Lock()
 _agents_lock = threading.Lock()
@@ -180,14 +221,16 @@ def save_sessions():
             k = {k: v for k, v in s.items()}
             hist = k.get("history", [])
             if hist:
-                k["history"] = [hist[0]] + hist[-10:]  # keep system prompt + last 10
+                k["history"] = [hist[0]] + hist[-10:]
             else:
                 k["history"] = hist
             keep[sid] = k
-        keys = list(keep.keys())[-100:]
-        keep = {k: keep[k] for k in keys}
-        with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(keep, f, ensure_ascii=False, indent=2, default=str)
+        max_sessions = 500
+        if len(keep) > max_sessions:
+            print(f"[WARNING] save_sessions: truncating {len(keep)} sessions to {max_sessions}", flush=True)
+            keys = list(keep.keys())[-max_sessions:]
+            keep = {k: keep[k] for k in keys}
+        atomic_json_dump(keep, SESSIONS_FILE, default=str)
 
 
 def load_sessions():
@@ -211,14 +254,17 @@ def load_sessions():
 def load_ratings():
     if not os.path.exists(RATINGS_FILE):
         return {}
-    with _ratings_lock:
-        with open(RATINGS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+    try:
+        with _ratings_lock:
+            with open(RATINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[ERROR] load_ratings failed: {e}", flush=True)
+        return {}
 
 def save_ratings(ratings):
     with _ratings_lock:
-        with open(RATINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(ratings, f, ensure_ascii=False, indent=2)
+        atomic_json_dump(ratings, RATINGS_FILE)
 
 def load_worlds():
     try:
@@ -238,22 +284,24 @@ def load_worlds():
 
 def save_worlds_data(worlds):
     with _worlds_lock:
-        with open(WORLDS_FILE, "w", encoding="utf-8") as f:
-            json.dump({"worlds": worlds}, f, ensure_ascii=False, indent=2)
+        atomic_json_dump({"worlds": worlds}, WORLDS_FILE)
 
 
 def load_submissions():
     if not os.path.exists(SUBMISSIONS_FILE):
         return []
-    with _submissions_lock:
-        with open(SUBMISSIONS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+    try:
+        with _submissions_lock:
+            with open(SUBMISSIONS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[ERROR] load_submissions failed: {e}", flush=True)
+        return []
 
 
 def save_submissions(subs):
     with _submissions_lock:
-        with open(SUBMISSIONS_FILE, "w", encoding="utf-8") as f:
-            json.dump(subs, f, ensure_ascii=False, indent=2)
+        atomic_json_dump(subs, SUBMISSIONS_FILE)
 
 
 _usage_log_lock = threading.Lock()
@@ -272,14 +320,18 @@ def log_usage(user_id, username, model, tokens, cost, endpoint):
         logs = []
         if os.path.exists(USAGE_LOG_FILE):
             with open(USAGE_LOG_FILE, "r", encoding="utf-8") as f:
-                try: logs = json.load(f)
+                try: 
+                    logs = json.load(f)
+                    if isinstance(logs, dict):
+                        logs = logs.get("logs", [])
+                    elif not isinstance(logs, list):
+                        logs = []
                 except Exception as e: logs = []
         logs.append(entry)
         # Keep last 10000 entries
         if len(logs) > 10000:
             logs = logs[-10000:]
-        with open(USAGE_LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(logs, f, ensure_ascii=False, indent=2)
+        atomic_json_dump(logs, USAGE_LOG_FILE)
 
 
 # ===== 反馈系统（已迁移至 Feedback 模型，文件读写已废弃）=====
@@ -337,7 +389,8 @@ class ModelConfig(db.Model):
             'credits_per_1k': self.credits_per_1k,
             'enabled': self.enabled,
             'priority': self.priority,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat(),
+            'source': 'system'
         }
 
     def to_dict_admin(self):
@@ -345,6 +398,37 @@ class ModelConfig(db.Model):
         data['api_base'] = self.api_base
         data['has_api_key'] = bool(self.api_key)
         return data
+
+
+class UserModelConfig(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    model_id = db.Column(db.String(100), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    label = db.Column(db.String(100), nullable=False)
+    api_base = db.Column(db.String(500), nullable=True)
+    api_key = db.Column(db.String(500), nullable=True)
+    priority = db.Column(db.Integer, default=100)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'model_id', name='uq_user_model'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'model_id': self.model_id,
+            'name': self.name,
+            'label': self.label,
+            'credits_per_1k': 0,
+            'enabled': True,
+            'priority': self.priority,
+            'created_at': self.created_at.isoformat(),
+            'source': 'personal',
+            'api_base': self.api_base,
+            'has_api_key': bool(self.api_key)
+        }
 
 
 class ApiConfig(db.Model):
@@ -425,6 +509,17 @@ def unauthorized():
 def init_db():
     with app.app_context():
         db.create_all()
+        # 迁移：为 user_model_config 添加 api_base 和 api_key 字段（SQLite 兼容）
+        try:
+            cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(user_model_config)")).fetchall()]
+            if 'api_base' not in cols:
+                db.session.execute(db.text("ALTER TABLE user_model_config ADD COLUMN api_base VARCHAR(500)"))
+            if 'api_key' not in cols:
+                db.session.execute(db.text("ALTER TABLE user_model_config ADD COLUMN api_key VARCHAR(500)"))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[WARN] user_model_config migration: {e}", flush=True)
         admin_exists = db.session.execute(db.text('SELECT COUNT(*) FROM user WHERE username = "admin"')).scalar()
         if not admin_exists:
             admin_pwd = os.getenv("ADMIN_PASSWORD")
@@ -457,8 +552,7 @@ def init_db():
 def load_agents():
     try:
         with _agents_lock:
-            with open(AGENTS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = _cached_json_load(AGENTS_FILE, {"agents": []})
             return data.get("agents", [])
     except Exception as e:
         print(f"[ERROR] load_agents failed: {e}", flush=True)
@@ -467,8 +561,8 @@ def load_agents():
 
 def save_agents(agents):
     with _agents_lock:
-        with open(AGENTS_FILE, "w", encoding="utf-8") as f:
-            json.dump({"agents": agents}, f, ensure_ascii=False, indent=2)
+        atomic_json_dump({"agents": agents}, AGENTS_FILE)
+    _invalidate_json_cache(AGENTS_FILE)
 
 
 def get_agent(agent_id):
@@ -488,6 +582,9 @@ def mock_reply(message, agent):
 
 
 def get_model_price(model_id):
+    user_model = UserModelConfig.query.filter_by(user_id=current_user.id, model_id=model_id).first()
+    if user_model:
+        return 0
     model = ModelConfig.query.filter_by(model_id=model_id, enabled=True).first()
     if model:
         return model.credits_per_1k
@@ -542,7 +639,7 @@ def get_api_config(key_name, default=""):
 
 
 def get_effective_api(model_id=None, user=None):
-    """返回 (api_key, api_url) — 优先用户的个人 API → 模型自定义 API → 全局配置 → .env"""
+    """返回 (api_key, api_url) — 优先用户模型 API → 系统模型 API → 用户个人 API → 全局配置 → .env"""
     if user is None:
         try:
             from flask_login import current_user
@@ -550,12 +647,16 @@ def get_effective_api(model_id=None, user=None):
                 user = current_user
         except Exception as e:
             print(f"[ERROR]: {e}", flush=True)
-    if user and user.personal_api_base and user.personal_api_key:
-        return user.personal_api_key, user.personal_api_base
+    if model_id and user:
+        user_model = UserModelConfig.query.filter_by(user_id=user.id, model_id=model_id).first()
+        if user_model and user_model.api_base and user_model.api_key:
+            return user_model.api_key, user_model.api_base
     if model_id:
         model = ModelConfig.query.filter_by(model_id=model_id).first()
         if model and model.api_base and model.api_key:
             return model.api_key, model.api_base
+    if user and user.personal_api_base and user.personal_api_key:
+        return user.personal_api_key, user.personal_api_base
     key = get_api_config("API_KEY", os.getenv("AI_API_KEY", ""))
     url = get_api_config("API_URL", os.getenv("AI_API_URL", ""))
     return key, url
@@ -583,6 +684,10 @@ def register():
 
     if not username or not password:
         return jsonify({"error": "用户名和密码不能为空"}), 400
+    if len(username) < 2 or len(username) > 32:
+        return jsonify({"error": "用户名长度必须在2-32位之间"}), 400
+    if not re.match(r'^[a-zA-Z0-9\u4e00-\u9fa5_]+$', username):
+        return jsonify({"error": "用户名只能包含字母、数字、中文和下划线"}), 400
     if len(password) < 6:
         return jsonify({"error": "密码长度至少6位"}), 400
     if len(password) > 128:
@@ -593,7 +698,12 @@ def register():
     user = User(username=username, credits=100)
     user.set_password(password)
     db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Registration failed: {e}", flush=True)
+        return jsonify({"error": "注册失败，请重试"}), 500
 
     login_user(user)
     return jsonify({"message": "注册成功", "user": user.to_dict()}), 201
@@ -636,7 +746,12 @@ def reset_admin_password():
     if admin:
         new_pwd = secrets.token_urlsafe(12)
         admin.set_password(new_pwd)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[ERROR] Admin password reset failed: {e}", flush=True)
+            return jsonify({"error": "密码重置失败"}), 500
         print(f"[SECURITY] Admin password reset: {new_pwd}", flush=True)
         return jsonify({"message": "管理员密码已重置，请查看服务器日志获取新密码"})
     return jsonify({"error": "管理员用户不存在"}), 404
@@ -721,15 +836,125 @@ def user_api_config():
     if "api_key" in data:
         v = data.get("api_key", "")
         current_user.personal_api_key = v.strip() if v else None
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[ERROR] Save API config failed: {e}", flush=True)
+        return jsonify({"error": "保存失败"}), 500
     return jsonify({"status": "ok", "has_personal_api": bool(current_user.personal_api_base and current_user.personal_api_key)})
 
 
 @app.route("/api/models", methods=["GET"])
 @login_required
 def list_models():
-    models = ModelConfig.query.filter_by(enabled=True).order_by(ModelConfig.priority).all()
+    system_models = ModelConfig.query.filter_by(enabled=True).order_by(ModelConfig.priority).all()
+    user_models = UserModelConfig.query.filter_by(user_id=current_user.id).order_by(UserModelConfig.priority).all()
+    
+    all_models = []
+    system_model_ids = set()
+    
+    for m in system_models:
+        all_models.append(m.to_dict())
+        system_model_ids.add(m.model_id)
+    
+    for m in user_models:
+        if m.model_id not in system_model_ids:
+            all_models.append(m.to_dict())
+    
+    all_models.sort(key=lambda x: x['priority'])
+    return jsonify(all_models)
+
+
+@app.route("/api/auth/models", methods=["GET"])
+@login_required
+def list_user_models():
+    models = UserModelConfig.query.filter_by(user_id=current_user.id).order_by(UserModelConfig.priority).all()
     return jsonify([m.to_dict() for m in models])
+
+
+@app.route("/api/auth/models", methods=["POST"])
+@login_required
+def add_user_model():
+    data = request.json
+    model_id = data.get("model_id", "").strip()
+    name = data.get("name", "").strip()
+    label = data.get("label", "").strip()
+
+    if not model_id or not name or not label:
+        return jsonify({"error": "模型ID、名称和标签不能为空"}), 400
+
+    existing = UserModelConfig.query.filter_by(user_id=current_user.id, model_id=model_id).first()
+    if existing:
+        return jsonify({"error": "该模型已存在"}), 400
+
+    model = UserModelConfig(
+        user_id=current_user.id,
+        model_id=model_id,
+        name=name,
+        label=label,
+        priority=data.get("priority", 100),
+        api_base=None,
+        api_key=None
+    )
+    if "api_base" in data:
+        v = data.get("api_base", "").strip()
+        if v:
+            safe, msg = is_safe_url(v)
+            if not safe:
+                return jsonify({"error": "API地址不安全: " + msg}), 400
+            model.api_base = v
+    if "api_key" in data:
+        model.api_key = data.get("api_key", "").strip() or None
+    db.session.add(model)
+    db.session.commit()
+    return jsonify(model.to_dict()), 201
+
+
+@app.route("/api/auth/models/<model_id>", methods=["PUT"])
+@login_required
+def update_user_model(model_id):
+    model = UserModelConfig.query.filter_by(user_id=current_user.id, model_id=model_id).first()
+    if not model:
+        return jsonify({"error": "模型不存在"}), 404
+
+    data = request.json
+    if "name" in data:
+        model.name = data["name"].strip()
+    if "label" in data:
+        model.label = data["label"].strip()
+    if "priority" in data:
+        model.priority = data["priority"]
+    if "api_base" in data:
+        v = data["api_base"]
+        if v:
+            safe, msg = is_safe_url(v)
+            if not safe:
+                return jsonify({"error": "API地址不安全: " + msg}), 400
+            model.api_base = v.strip()
+        else:
+            model.api_base = None
+    if "api_key" in data:
+        v = data["api_key"]
+        if v and v.strip() != '********':
+            model.api_key = v.strip()
+        elif not v:
+            model.api_key = None
+
+    db.session.commit()
+    return jsonify(model.to_dict())
+
+
+@app.route("/api/auth/models/<model_id>", methods=["DELETE"])
+@login_required
+def delete_user_model(model_id):
+    model = UserModelConfig.query.filter_by(user_id=current_user.id, model_id=model_id).first()
+    if not model:
+        return jsonify({"error": "模型不存在"}), 404
+    
+    db.session.delete(model)
+    db.session.commit()
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/admin/models", methods=["GET"])
@@ -761,9 +986,18 @@ def admin_add_model():
         label=label,
         credits_per_1k=int(credits_per_1k),
         priority=data.get("priority", 100),
-        api_base=data.get("api_base", "").strip() or None,
-        api_key=data.get("api_key", "").strip() or None
+        api_base=None,
+        api_key=None
     )
+    if "api_base" in data:
+        v = data.get("api_base", "").strip()
+        if v:
+            safe, msg = is_safe_url(v)
+            if not safe:
+                return jsonify({"error": "API地址不安全: " + msg}), 400
+            model.api_base = v
+    if "api_key" in data:
+        model.api_key = data.get("api_key", "").strip() or None
     db.session.add(model)
     db.session.commit()
     return jsonify(model.to_dict()), 201
@@ -788,10 +1022,17 @@ def admin_update_model(model_id):
         model.enabled = bool(data["enabled"])
     if "api_base" in data:
         v = data["api_base"]
-        model.api_base = v.strip() if v else None
+        if v:
+            safe, msg = is_safe_url(v)
+            if not safe:
+                return jsonify({"error": "API地址不安全: " + msg}), 400
+            model.api_base = v.strip()
+        else:
+            model.api_base = None
     if "api_key" in data:
         v = data["api_key"]
-        model.api_key = v.strip() if v else None
+        if v and v.strip() != '********':
+            model.api_key = v.strip()
     if "priority" in data:
         model.priority = int(data["priority"])
 
@@ -830,9 +1071,22 @@ def admin_update_user(user_id):
 
     data = request.json
     if "credits" in data:
-        user.credits = int(data["credits"])
+        try:
+            credits = int(data["credits"])
+            if credits < 0 or credits > 999999:
+                return jsonify({"error": "积分值无效（0-999999）"}), 400
+            user.credits = credits
+        except (ValueError, TypeError):
+            return jsonify({"error": "积分值必须为整数"}), 400
     if "role" in data:
-        user.role = data["role"]
+        role = data["role"]
+        if role not in ["user", "admin"]:
+            return jsonify({"error": "无效的角色值"}), 400
+        if role == "admin":
+            admin_count = User.query.filter_by(role="admin").count()
+            if user.role != "admin" and admin_count >= 3:
+                return jsonify({"error": "管理员数量已达上限（3人）"}), 400
+        user.role = role
 
     db.session.commit()
     return jsonify(user.to_dict())
@@ -847,6 +1101,10 @@ def admin_delete_user(user_id):
         return jsonify({"error": "用户不存在"}), 404
     if user.id == current_user.id:
         return jsonify({"error": "不能删除自己"}), 400
+
+    admin_count = User.query.filter_by(role="admin").count()
+    if user.role == "admin" and admin_count <= 1:
+        return jsonify({"error": "必须至少保留一名管理员"}), 400
 
     db.session.delete(user)
     db.session.commit()
@@ -896,7 +1154,8 @@ def delete_agent(agent_id):
     if len(new_agents) == len(agents):
         return jsonify({"error": "未找到智能体"}), 404
     save_agents(new_agents)
-    histories.pop(f"{current_user.id}_{agent_id}", None)
+    with _histories_lock:
+        histories.pop(f"{current_user.id}_{agent_id}", None)
     return jsonify({"status": "ok"})
 
 
@@ -974,6 +1233,12 @@ def chat():
             histories[history_key].append({"role": "user", "content": user_message})
             histories[history_key].append({"role": "assistant", "content": reply})
             history_length = len(histories[history_key])
+            if history_length > 100:
+                histories[history_key] = histories[history_key][-100:]
+            if len(histories) > 500:
+                oldest_keys = sorted(histories.keys())[:len(histories)-500]
+                for k in oldest_keys:
+                    histories.pop(k, None)
         
         return jsonify({
             "reply": reply,
@@ -1123,7 +1388,10 @@ def get_world_ratings(world_id):
 def rate_world(world_id):
     """玩家对世界书打分和评价"""
     data = request.json
-    rating = int(data.get("rating", 0))
+    try:
+        rating = int(data.get("rating", 0))
+    except (ValueError, TypeError):
+        return jsonify({"error": "评分必须为整数"}), 400
     review = data.get("review", "").strip()
     if rating < 1 or rating > 5:
         return jsonify({"error": "评分需在1-5之间"}), 400
@@ -1194,6 +1462,10 @@ def submit_world():
     try:
         sub["temperature"] = float(data.get("temperature", 0.85))
         sub["max_tokens"] = int(data.get("max_tokens", 700))
+        if not (0 <= sub["temperature"] <= 2):
+            return jsonify({"error": "temperature 必须在 0-2 之间"}), 400
+        if not (100 <= sub["max_tokens"] <= 4096):
+            return jsonify({"error": "max_tokens 必须在 100-4096 之间"}), 400
     except (ValueError, TypeError):
         return jsonify({"error": "temperature/max_tokens 必须为数字"}), 400
     subs.append(sub)
@@ -1439,7 +1711,7 @@ def start_rpg():
     if not world:
         return jsonify({"error": "未找到世界"}), 404
 
-    session_id = str(uuid.uuid4())[:8]
+    session_id = str(uuid.uuid4())[:12]
     messages = [
         {"role": "system", "content": world["system_prompt"] + MANDATORY_RPG_FORMAT},
         {"role": "user", "content": f"玩家名称为「{player_name}」。游戏开始，请描述开场场景并输出所有强制段。"}
@@ -1882,6 +2154,16 @@ def branch_session(session_id):
         pair_count += 1
     sess["history"] = kept
     sess["last_active"] = datetime.now().isoformat()
+
+    rels_str = last_sections.get("关系", "")
+    rmap = {}
+    if rels_str:
+        for part in rels_str.replace("【", "").replace("】", "").split():
+            if ":" in part:
+                k, v = part.split(":", 1)
+                rmap[k.strip()] = v.strip()
+    sess["sections"]["关系_map"] = rmap
+
     save_sessions()
 
     return jsonify({
@@ -2029,8 +2311,8 @@ def generate_credit_key():
     data = request.json
     credits = int(data.get("credits", 100))
     count = int(data.get("count", 1))
-    if credits < 1 or count < 1 or count > 100:
-        return jsonify({"error": "参数无效"}), 400
+    if credits < 1 or credits > 999999 or count < 1 or count > 100:
+        return jsonify({"error": "参数无效（credits: 1-999999, count: 1-100）"}), 400
 
     generated = []
     for _ in range(count):
@@ -2112,11 +2394,22 @@ def submit_feedback():
     if len(content) > 5000:
         return jsonify({"error": "内容不能超过5000字"}), 400
 
+    category = data.get("category", "suggestion")
+    if category not in ["bug", "feature", "suggestion", "praise", "other"]:
+        return jsonify({"error": "无效的分类"}), 400
+
+    try:
+        rating = int(data.get("rating", 3))
+        if not (1 <= rating <= 5):
+            return jsonify({"error": "评分必须在1-5之间"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "评分必须为整数"}), 400
+
     fb = Feedback(
         user_id=current_user.id,
         username=current_user.username,
-        category=data.get("category", "suggestion"),
-        rating=int(data.get("rating", 3)),
+        category=category,
+        rating=rating,
         title=title,
         content=content,
         status="open"
@@ -2143,10 +2436,12 @@ def list_feedback():
     if status:
         query = query.filter_by(status=status)
     if search:
+        escaped_search = search.replace("%", "\\%").replace("_", "\\_")
+        search_pattern = f'%{escaped_search}%'
         query = query.filter(
-            (Feedback.title.ilike(f'%{search}%')) | 
-            (Feedback.content.ilike(f'%{search}%')) |
-            (Feedback.username.ilike(f'%{search}%'))
+            (Feedback.title.ilike(search_pattern)) | 
+            (Feedback.content.ilike(search_pattern)) |
+            (Feedback.username.ilike(search_pattern))
         )
 
     total = query.count()
