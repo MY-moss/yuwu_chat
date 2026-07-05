@@ -13,7 +13,7 @@ function toast(msg, type) {
     d.textContent = msg;
     c.appendChild(d);
     setTimeout(() => d.classList.add('show'), 10);
-    setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, 2500);
+    setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, 3500);
 }
 
 // ===== Utils =====
@@ -213,7 +213,7 @@ async function changePassword() {
     const newPwd = $('newPassword').value.trim();
     const newPwd2 = $('newPassword2').value.trim();
     const msgEl = $('changePwdMsg');
-    
+
     if (!oldPwd || !newPwd) {
         msgEl.textContent = '请输入原密码和新密码';
         msgEl.style.color = 'var(--accent)';
@@ -229,27 +229,31 @@ async function changePassword() {
         msgEl.style.color = 'var(--accent)';
         return;
     }
-    
-    const res = await fetch('/api/auth/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
-    });
-    const data = await res.json();
-    
-    if (data.error) {
-        msgEl.textContent = data.error;
+
+    try {
+        const data = await api('/api/auth/change-password', {
+            method: 'POST',
+            body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
+        });
+
+        if (data.error) {
+            msgEl.textContent = data.error;
+            msgEl.style.color = 'var(--accent)';
+        } else {
+            msgEl.textContent = '密码修改成功！';
+            msgEl.style.color = '#4CAF50';
+            $('oldPassword').value = '';
+            $('newPassword').value = '';
+            $('newPassword2').value = '';
+            setTimeout(() => {
+                $('changePwdModal').classList.remove('show');
+                msgEl.textContent = '';
+            }, 1500);
+        }
+    } catch (e) {
+        console.error('[ERROR] changePassword:', e);
+        msgEl.textContent = '修改失败，请稍后重试';
         msgEl.style.color = 'var(--accent)';
-    } else {
-        msgEl.textContent = '密码修改成功！';
-        msgEl.style.color = '#4CAF50';
-        $('oldPassword').value = '';
-        $('newPassword').value = '';
-        $('newPassword2').value = '';
-        setTimeout(() => {
-            $('changePwdModal').classList.remove('show');
-        }, 1500);
     }
 }
 
@@ -317,9 +321,9 @@ function setupEventListeners() {
         });
     });
 
-    $('loginBtn').addEventListener('click', login);
-    $('registerBtn').addEventListener('click', register);
-    $('logoutBtn').addEventListener('click', logout);
+    $('loginBtn')?.addEventListener('click', login);
+    $('registerBtn')?.addEventListener('click', register);
+    $('logoutBtn')?.addEventListener('click', logout);
 
     // Password visibility toggles
     document.querySelectorAll('.pwd-toggle').forEach(btn => {
@@ -1787,7 +1791,6 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
         tab.classList.add('active');
         const panel = tab.dataset.panel;
         $('adminModelsPanel').style.display = panel === 'models' ? 'block' : 'none';
-        $('adminApiConfigPanel').style.display = panel === 'apiconfig' ? 'block' : 'none';
         $('adminUsersPanel').style.display = panel === 'users' ? 'block' : 'none';
         $('adminCreditKeysPanel').style.display = panel === 'creditkeys' ? 'block' : 'none';
         $('adminStatsPanel').style.display = panel === 'stats' ? 'block' : 'none';
@@ -1796,63 +1799,7 @@ document.querySelectorAll('.admin-tab').forEach(tab => {
         if (panel === 'stats') loadAdminStats();
         if (panel === 'submissions') loadAdminSubmissions();
         if (panel === 'allsessions') loadAdminAllSessions();
-        if (panel === 'apiconfig') loadAdminApiConfig();
     });
-});
-
-// Admin API Config
-async function loadAdminApiConfig() {
-    const data = await api('/api/admin/api-config');
-    $('adminApiKey').value = data.configs?.API_KEY?.value || '';
-    $('adminApiUrl').value = data.configs?.API_URL?.value || '';
-    renderApiPriority(data.configs || {});
-}
-
-function renderApiPriority(configs) {
-    const entries = Object.entries(configs).map(([key, value]) => ({
-        key_name: key,
-        value: value.value,
-        priority: value.priority || 0
-    })).sort((a, b) => b.priority - a.priority);
-    
-    $('adminApiPriorityList').innerHTML = entries.map((cfg, index) => `
-        <div class="admin-list-item">
-            <div class="ali-main">
-                <div class="ali-name">${escapeHtml(cfg.key_name)}</div>
-                <div class="ali-meta">优先级: ${cfg.priority}</div>
-            </div>
-            <div class="ali-actions">
-                <button class="btn-pri-up" data-key="${escapeHtml(cfg.key_name)}" data-pri="${cfg.priority}">▲ 提升</button>
-                <button class="btn-pri-down" data-key="${escapeHtml(cfg.key_name)}" data-pri="${cfg.priority}">▼ 降低</button>
-            </div>
-        </div>
-    `).join('') || '<div class="status-empty">暂无API配置</div>';
-    
-    document.querySelectorAll('.btn-pri-up').forEach(btn => {
-        btn.addEventListener('click', () => changeApiPriority(btn.dataset.key, parseInt(btn.dataset.pri) + 1));
-    });
-    document.querySelectorAll('.btn-pri-down').forEach(btn => {
-        btn.addEventListener('click', () => changeApiPriority(btn.dataset.key, parseInt(btn.dataset.pri) - 1));
-    });
-}
-
-async function changeApiPriority(keyName, priority) {
-    await api('/api/admin/api-config/priority', {
-        method: 'PUT',
-        body: JSON.stringify({ key_name: keyName, priority })
-    });
-    loadAdminApiConfig();
-}
-
-$('saveAdminApiBtn').addEventListener('click', async () => {
-    const apiKey = $('adminApiKey').value.trim();
-    const apiUrl = $('adminApiUrl').value.trim();
-    await api('/api/admin/api-config', {
-        method: 'PUT',
-        body: JSON.stringify({ api_key: apiKey, api_url: apiUrl })
-    });
-    toast('API配置已保存', 'success');
-    loadAdminApiConfig();
 });
 
 // Admin Models
@@ -2060,11 +2007,33 @@ async function loadPersonalApiConfig() {
 
 window.fillNewModelApiUrl = function() {
     const provider = $('newModelProvider').value;
-    const urls = {
-        siliconflow: 'https://api.siliconflow.cn/v1/chat/completions'
+    const presets = {
+        siliconflow: {
+            url: 'https://api.siliconflow.cn/v1/chat/completions',
+            placeholder: 'deepseek-ai/DeepSeek-V3'
+        },
+        deepseek: {
+            url: 'https://api.deepseek.com/v1/chat/completions',
+            placeholder: 'deepseek-chat'
+        },
+        qwen: {
+            url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+            placeholder: 'qwen-plus'
+        },
+        zhipu: {
+            url: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+            placeholder: 'glm-4-flash'
+        },
+        moonshot: {
+            url: 'https://api.moonshot.cn/v1/chat/completions',
+            placeholder: 'moonshot-v1-8k'
+        }
     };
-    if (urls[provider]) {
-        $('newModelApiBase').value = urls[provider];
+    if (presets[provider]) {
+        $('newModelApiBase').value = presets[provider].url;
+        if (presets[provider].placeholder && !$('newModelId').value) {
+            $('newModelId').placeholder = presets[provider].placeholder;
+        }
     }
 }
 

@@ -92,15 +92,20 @@ function setupRating() {
             s.classList.toggle('active', parseInt(s.dataset.value) <= currentRating);
         });
     });
+    stars.forEach(s => {
+        s.classList.toggle('active', parseInt(s.dataset.value) <= currentRating);
+    });
 }
 
 function getRating() {
-    let r = 3;
-    document.querySelectorAll('.fb-star.active').forEach(s => {
+    const activeStars = document.querySelectorAll('.fb-star.active');
+    if (activeStars.length === 0) return 3;
+    let r = 0;
+    activeStars.forEach(s => {
         const v = parseInt(s.dataset.value);
         if (v > r) r = v;
     });
-    return r;
+    return r || 3;
 }
 
 // ===== Submit =====
@@ -322,7 +327,7 @@ async function saveFbDetail(id) {
 }
 
 async function deleteFb(id) {
-    if (!confirm('确定要删除这条反馈吗？')) return;
+    if (!await showConfirmModal('确定要删除这条反馈吗？')) return;
     const res = await authApi(`/api/feedback/${id}`, { method: 'DELETE' });
     if (res.error) {
         toast(res.error, 'error');
@@ -334,9 +339,29 @@ async function deleteFb(id) {
     }
 }
 
+function showConfirmModal(msg) {
+    const overlay = $('fbConfirmModal');
+    const msgEl = $('fbConfirmMsg');
+    if (!overlay || !msgEl) return Promise.resolve(false);
+    msgEl.textContent = msg;
+    overlay.style.display = 'flex';
+    overlay.classList.add('show');
+    return new Promise(resolve => {
+        const cleanup = () => {
+            overlay.style.display = 'none';
+            overlay.classList.remove('show');
+            $('fbConfirmOk').onclick = null;
+            $('fbConfirmCancel').onclick = null;
+        };
+        $('fbConfirmOk').onclick = () => { cleanup(); resolve(true); };
+        $('fbConfirmCancel').onclick = () => { cleanup(); resolve(false); };
+    });
+}
+
+const HTML_ENTITY = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
 function escapeHtml(s) {
     if (s == null) return '';
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+    return String(s).replace(/[&<>"']/g, c => HTML_ENTITY[c]);
 }
 
 init();

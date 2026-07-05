@@ -23,12 +23,12 @@
             <div id="loginForm" class="auth-form">
                 <div class="form-group">
                     <label for="loginUsername">用户名</label>
-                    <input type="text" id="loginUsername" placeholder="请输入用户名" autocomplete="username">
+                    <input type="text" id="loginUsername" placeholder="请输入用户名" autocomplete="username" maxlength="50">
                 </div>
                 <div class="form-group">
                     <label for="loginPassword">密码</label>
                     <div class="pwd-wrapper">
-                        <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+                        <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password" maxlength="128">
                         <button type="button" class="pwd-toggle" data-target="loginPassword" title="显示/隐藏密码">👁</button>
                     </div>
                 </div>
@@ -39,19 +39,18 @@
             <div id="registerForm" class="auth-form" style="display:none;">
                 <div class="form-group">
                     <label for="regUsername">用户名</label>
-                    <input type="text" id="regUsername" placeholder="请输入用户名" autocomplete="username">
+                    <input type="text" id="regUsername" placeholder="请输入用户名" autocomplete="username" maxlength="50">
                 </div>
                 <div class="form-group">
                     <label for="regPassword">密码</label>
                     <div class="pwd-wrapper">
-                        <input type="password" id="regPassword" placeholder="至少6位密码" autocomplete="new-password">
-                        <button type="button" class="pwd-toggle" data-target="regPassword" title="显示/隐藏密码">👁</button>
+                        <input type="password" id="regPassword" placeholder="至少6位密码" autocomplete="new-password" maxlength="128">
                     </div>
                 </div>
                 <div class="form-group">
                     <label for="regPassword2">确认密码</label>
                     <div class="pwd-wrapper">
-                        <input type="password" id="regPassword2" placeholder="再次输入密码" autocomplete="new-password">
+                        <input type="password" id="regPassword2" placeholder="再次输入密码" autocomplete="new-password" maxlength="128">
                         <button type="button" class="pwd-toggle" data-target="regPassword2" title="显示/隐藏密码">👁</button>
                     </div>
                 </div>
@@ -242,14 +241,13 @@
             <div class="modal-body">
                 <div class="admin-tabs">
                     <button class="admin-tab active" data-panel="models">🧠 模型管理</button>
-                    <button class="admin-tab" data-panel="apiconfig">🔌 API配置</button>
                     <button class="admin-tab" data-panel="users">👥 用户管理</button>
                     <button class="admin-tab" data-panel="stats">📊 统计</button>
                     <button class="admin-tab" data-panel="submissions">📝 待审核</button>
                     <button class="admin-tab" data-panel="creditkeys">🎫 充值密钥</button>
                     <button class="admin-tab" data-panel="allsessions">🏃 跑团监控</button>
                 </div>
-                
+
                 <!-- 模型管理 -->
                 <div id="adminModelsPanel" class="admin-panel">
                     <div class="admin-panel-header">
@@ -257,22 +255,6 @@
                         <button class="btn-add btn-sm" id="addModelBtn">+ 添加模型</button>
                     </div>
                     <div class="admin-list" id="adminModelsList"></div>
-                </div>
-
-                <!-- API配置 -->
-                <div id="adminApiConfigPanel" class="admin-panel" style="display:none;">
-                    <div class="admin-panel-header">
-                        <span>🔌 API 配置管理</span>
-                    </div>
-                    <div class="api-config-form">
-                        <div class="form-group"><label>API Key</label><input type="text" id="adminApiKey" placeholder="sk-xxxxxxxx..."></div>
-                        <div class="form-group"><label>API URL</label><input type="text" id="adminApiUrl" placeholder="https://opencode.ai/zen/v1/chat/completions"></div>
-                        <button class="btn-add" id="saveAdminApiBtn" style="width:100%;">💾 保存配置</button>
-                    </div>
-                    <div class="admin-panel-header" style="margin-top:16px;">
-                        <span>📊 API 优先级排序</span>
-                    </div>
-                    <div class="admin-list" id="adminApiPriorityList"></div>
                 </div>
 
                 <!-- 用户管理 -->
@@ -494,6 +476,10 @@
                         <select id="newModelProvider" onchange="fillNewModelApiUrl()">
                             <option value="">请选择 API 提供商（可选）</option>
                             <option value="siliconflow">SiliconFlow（硅基流动）</option>
+                            <option value="deepseek">DeepSeek（深度求索）</option>
+                            <option value="qwen">阿里通义千问（DashScope）</option>
+                            <option value="zhipu">智谱 AI（GLM）</option>
+                            <option value="moonshot">月之暗面（Kimi）</option>
                             <option value="custom">自定义地址</option>
                         </select>
                     </div>
@@ -538,9 +524,9 @@
         <div class="modal">
             <div class="modal-header"><span>🔑 修改密码</span><button class="modal-close" id="changePwdClose">&times;</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>原密码</label><input type="password" id="oldPassword" placeholder="请输入原密码"></div>
-                <div class="form-group"><label>新密码</label><input type="password" id="newPassword" placeholder="至少6位"></div>
-                <div class="form-group"><label>确认新密码</label><input type="password" id="newPassword2" placeholder="再次输入新密码"></div>
+                <div class="form-group"><label for="oldPassword">原密码</label><input type="password" id="oldPassword" placeholder="请输入原密码" autocomplete="current-password" maxlength="128"></div>
+                <div class="form-group"><label for="newPassword">新密码</label><input type="password" id="newPassword" placeholder="至少6位" autocomplete="new-password" maxlength="128"></div>
+                <div class="form-group"><label for="newPassword2">确认新密码</label><input type="password" id="newPassword2" placeholder="再次输入新密码" autocomplete="new-password" maxlength="128"></div>
                 <button class="btn-add" id="changePwdSubmit" style="width:100%;">💾 确认修改</button>
                 <div class="form-hint" id="changePwdMsg" style="margin-top:10px;"></div>
             </div>
@@ -552,7 +538,7 @@
         <div class="modal">
             <div class="modal-header"><span>💳 积分充值</span><button class="modal-close" id="redeemClose">&times;</button></div>
             <div class="modal-body">
-                <div class="form-group"><label>输入充值密钥</label><input type="text" id="redeemCode" placeholder="如 TAVERN-XXXXXXXXXXXX" style="text-transform:uppercase;"></div>
+                <div class="form-group"><label>输入充值密钥</label><input type="text" id="redeemCode" placeholder="如 TAVERN-XXXXXXXXXXXX" style="text-transform:uppercase;" maxlength="50"></div>
                 <button class="btn-add" id="redeemSubmitBtn" style="width:100%;">⚡ 立即兑换</button>
                 <div class="form-hint" id="redeemMsg" style="margin-top:10px;"></div>
                 <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);text-align:center;">

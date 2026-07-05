@@ -70,5 +70,14 @@
     "tokens": 0,
     "cost": 1,
     "endpoint": "rpg_start"
+  },
+  {
+    "time": "2026-07-05T14:18:18.187363",
+    "user_id": 1,
+    "username": "admin",
+    "model": "DeepSeek-V4-Flash",
+    "tokens": 9625,
+    "cost": 10,
+    "endpoint": "rpg_start"
   }
 ]

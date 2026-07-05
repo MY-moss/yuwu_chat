@@ -182,6 +182,8 @@ MANDATORY_RPG_FORMAT = """
 
 histories = {}
 rpg_sessions = {}
+_json_cache = {}
+_json_cache_mtime = {}
 
 def _cached_json_load(file_path, default=None):
     try:
@@ -195,7 +197,8 @@ def _cached_json_load(file_path, default=None):
         _json_cache[file_path] = data
         _json_cache_mtime[file_path] = mtime
         return data
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] _cached_json_load failed for {file_path}: {e}", flush=True)
         return default
 
 def _invalidate_json_cache(file_path):
@@ -1296,7 +1299,7 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=400):
 def parse_rpg_reply(text):
     import re
     text = text.strip()
-    marker_re = r'【([^】]+)】'
+    marker_re = r'[【（\[\(]([^】）\]\)]+)[】）\]\)]'
     matches = list(re.finditer(marker_re, text))
     if not matches:
         return text, {}
@@ -1811,7 +1814,7 @@ def rpg_act():
     session["history"].append({"role": "user", "content": ctx})
 
     if len(session["history"]) > 30:
-        session["history"] = [session["history"][0]] + session["history"][-28:]
+        session["history"] = [session["history"][0]] + session["history"][-29:]
 
     session["model"] = model
 
@@ -1920,7 +1923,7 @@ def rpg_act_stream():
         temp_history.append({"role": "assistant", "content": sess.get("last_story", "")})
         temp_history.append({"role": "user", "content": ctx})
         if len(temp_history) > 30:
-            temp_history = [temp_history[0]] + temp_history[-28:]
+            temp_history = [temp_history[0]] + temp_history[-29:]
         body = {"model": model, "messages": temp_history,
                 "temperature": world.get("temperature", 0.85),
                 "max_tokens": world.get("max_tokens", 400)}
@@ -2265,7 +2268,7 @@ def get_api_config_route():
 @admin_required
 def update_api_config_route():
     data = request.json
-    if "api_key" in data and data["api_key"].strip() and "***" not in data["api_key"]:
+    if "api_key" in data and data["api_key"].strip() and data["api_key"].strip() != '********':
         cfg = ApiConfig.query.filter_by(key_name="API_KEY").first()
         if cfg:
             cfg.value = data["api_key"].strip()
@@ -2321,12 +2324,9 @@ def generate_credit_key():
     if credits < 1 or credits > 999999 or count < 1 or count > 100:
         return jsonify({"error": "参数无效（credits: 1-999999, count: 1-100）"}), 400
 
-    generated = []
-    for _ in range(count):
-        key_str = "TAVERN-" + uuid.uuid4().hex[:12].upper()
-        ck = CreditKey(key=key_str, credits=credits)
-        db.session.add(ck)
-        generated.append(key_str)
+    keys = [CreditKey(key="TAVERN-" + uuid.uuid4().hex[:12].upper(), credits=credits) for _ in range(count)]
+    db.session.add_all(keys)
+    generated = [k.key for k in keys]
 
     db.session.commit()
     return jsonify({
