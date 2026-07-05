@@ -30,15 +30,12 @@ echo.
 
 echo [3/3] 启动服务器...
 
-if exist "../release/云雾酒馆.exe" (
+if exist "云雾酒馆.exe" (
     start "" http://127.0.0.1:9000
-    "../release/云雾酒馆.exe"
-) else if exist "../release/tavern.exe" (
+    "云雾酒馆.exe"
+) else if exist "tavern.exe" (
     start "" http://127.0.0.1:9000
-    "../release/tavern.exe"
-) else (
-    start "" http://127.0.0.1:9000
-    python ../src/backend/app.py
+    "tavern.exe"
 )
 
 echo.

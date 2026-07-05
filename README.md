@@ -61,15 +61,13 @@ python app.py
 ai_chat/
 ├── 启动.bat                      # 🚀 根目录一键启动脚本（v2.1.5新增）
 ├── .gitignore                    # Git 忽略规则
-├── scripts/                      # 🛠️ 工具脚本（8个）
-│   ├── build.bat                 # 构建脚本
-│   ├── bump_version.py           # 版本号递增
-│   ├── bump_version.ps1          # 版本号递增（PS版）
-│   ├── check_user.py             # 用户查询
-│   ├── launch.py                 # 快速启动
+├── scripts/                      # 🛠️ 工具脚本（5个）
+│   ├── build.bat                 # 构建发布版脚本
+│   ├── bump_version.py           # 版本号递增管理
+│   ├── release_start.bat         # 发布版启动脚本（用于release/）
+│   ├── release_start.ps1         # 发布版启动脚本（PS版）
 │   ├── reset_db.py               # 数据库重置
-│   ├── start_fresh.py            # 全新开始
-│   └── test_rpg.py               # RPG 测试
+│   └── test_rpg.py               # RPG功能测试
 ├── src/                          # 📦 源码目录 ⭐
 │   └── backend/                  # 🔧 Flask应用
 │       ├── app.py                # ⭐ 主应用（约2634行，22区块分区注释）
@@ -96,11 +94,6 @@ ai_chat/
 │           ├── feedback.html     # 反馈页（119行）
 │           ├── dashboard.html    # 管理面板（297行）
 │           └── spectate.html     # 观战页（67行）
-├── tavern/                       # 🚀 开发启动入口（仅保留启动脚本+数据库备份）
-│   ├── .env                      # 环境变量
-│   ├── start.bat                 # 启动脚本
-│   ├── start.ps1                 # 启动脚本（PS版）
-│   └── instance/tavern.db.bak    # 数据库备份
 └── release/                      # 📦 发布版（含tavern.exe）
     ├── tavern.exe                # 可执行文件（16MB）
     ├── .env / *.json / scripts   # 同步文件

@@ -96,8 +96,8 @@ echo   PyInstaller build completed
 echo [4/5] Organizing release files...
 mkdir "%OUTPUT_DIR%"
 copy "%DIST_DIR%\tavern.exe" "%OUTPUT_DIR%\tavern.exe" >nul
-copy "tavern\start.bat" "%OUTPUT_DIR%\start.bat" >nul
-copy "tavern\start.ps1" "%OUTPUT_DIR%\start.ps1" >nul
+copy "scripts\release_start.bat" "%OUTPUT_DIR%\start.bat" >nul
+copy "scripts\release_start.ps1" "%OUTPUT_DIR%\start.ps1" >nul
 copy "src/backend\.env" "%OUTPUT_DIR%\.env" >nul
 copy "src/backend\agents.json" "%OUTPUT_DIR%\agents.json" >nul
 copy "src/backend\worldbooks.json" "%OUTPUT_DIR%\worldbooks.json" >nul
