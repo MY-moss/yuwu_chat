@@ -33,3 +33,7 @@ nul
 
 # AI evaluation report (auto-generated, not version controlled)
 docs/AI行为评估报告.md
+
+# Documentation and Trae agent files - LOCAL ONLY, never sync to GitHub
+docs/
+.trae/
