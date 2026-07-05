@@ -101,7 +101,9 @@
         <div id="chatMode">
             <div class="tavern-info">
                 <select id="agentSelect" class="agent-select" style="display:none;"></select>
-                <div class="agent-card-selector" id="agentCardSelector"></div>
+                <input type="text" id="agentSearchInput" class="agent-search" placeholder="🔍 搜索智能体..." autocomplete="off">
+                <div class="skeleton-row" id="agentSkeleton"><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div></div>
+                <div class="agent-card-selector" id="agentCardSelector" style="display:none;"></div>
                 <button class="btn-manage" id="manageBtn" title="管理智能体">⚙️</button>
             </div>
             <div class="chat-box" id="chatBox"></div>
@@ -137,7 +139,7 @@
                         <button class="btn-manage" id="manageWorldBtn">✏️</button>
                     </div>
                 </div>
-                <div class="world-grid" id="worldGrid"></div>
+                <div class="world-grid" id="worldGrid"><div class="skeleton-row" id="worldSkeleton" style="grid-column:1/-1;padding:14px 0;"><div class="skeleton-block" style="flex:1;height:80px;"></div><div class="skeleton-block" style="flex:1;height:80px;"></div><div class="skeleton-block" style="flex:1;height:80px;"></div></div></div>
                 <div class="spectate-square" id="spectateSquare" style="margin-top:16px;display:none;">
                     <div class="rpg-header"><span>👀 围观广场</span></div>
                     <div class="spectate-list" id="spectateList">
@@ -337,7 +339,7 @@
                 <div class="form-group"><label>显示标签</label><input type="text" id="mEditLabel" placeholder="如 🎭 Mimo V2.5" maxlength="100"></div>
                 <div class="form-group"><label>每千Token价格（积分）</label><input type="number" id="mEditCreditsPer1k" value="1" min="1"></div>
                 <div class="form-group"><label>优先级（数值越小越靠前）</label><input type="number" id="mEditPriority" value="100" min="0"></div>
-                <div class="form-group"><label>API 地址（可选，留空用默认）</label><input type="text" id="mEditApiBase" placeholder="https://opencode.ai/zen/v1/chat/completions" maxlength="500"></div>
+                <div class="form-group"><label>API 地址（可选，留空用默认）</label><input type="text" id="mEditApiBase" placeholder="https://api.example.com/v1/chat/completions" maxlength="500"></div>
                 <div class="form-group"><label>API Key（可选）</label><input type="text" id="mEditApiKey" placeholder="自定义模型需填写对应API Key" maxlength="500"></div>
                 <div class="form-group">
                     <label style="display:flex;align-items:center;gap:8px;">
@@ -369,6 +371,7 @@
                 <div class="form-grid">
                     <div class="form-group"><label>ID</label><input type="text" id="editId" maxlength="100"></div>
                     <div class="form-group"><label>名称</label><input type="text" id="editName" maxlength="100"></div>
+                    <div class="form-group"><label>头像</label><input type="text" id="editAvatar" maxlength="10" placeholder="🧔"></div>
                     <div class="form-group"><label>称号</label><input type="text" id="editTitle" maxlength="100"></div>
                     <div class="form-group"><label>Model</label><input type="text" id="editModel" value="gpt-3.5-turbo"></div>
                     <div class="form-group"><label>Temperature</label><input type="number" id="editTemp" step="0.05" min="0" max="2"></div>

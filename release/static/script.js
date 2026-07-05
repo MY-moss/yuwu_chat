@@ -10,6 +10,11 @@ let rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
 let currentUser = null;
 let isShared = false;
 let rpgAbortController = null;
+let isSwitchingMode = false;
+let isSwitchingAgent = false;
+
+const agentState = {};
+let currentAgentId = null;
 
 // ============================================================
 // 区块 02 · 工具函数与Loading
@@ -80,6 +85,114 @@ function updateLoadingStatus(text) {
     if (loadingStatus) loadingStatus.textContent = text || '';
 }
 
+function saveCurrentAgentState() {
+    if (!currentAgentId || !chatBox) return;
+    agentState[currentAgentId] = {
+        scrollTop: chatBox.scrollTop,
+        scrollHeight: chatBox.scrollHeight,
+        messages: chatBox.innerHTML,
+        timestamp: Date.now()
+    };
+}
+
+function restoreAgentState(agentId) {
+    if (!agentState[agentId] || !chatBox) return;
+    const state = agentState[agentId];
+    chatBox.innerHTML = state.messages;
+    chatBox.scrollTop = state.scrollTop;
+}
+
+async function switchMode(newMode) {
+    if (isSwitchingMode || currentMode === newMode) return;
+    isSwitchingMode = true;
+
+    const chatModeEl = document.getElementById('chatMode');
+    const rpgModeEl = document.getElementById('rpgMode');
+    
+    chatModeEl.style.opacity = '0';
+    rpgModeEl.style.opacity = '0';
+    
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    currentMode = newMode;
+
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.mode-tab[data-mode="${newMode}"]`)?.classList.add('active');
+    
+    document.querySelectorAll('.mobile-tab-item[data-mode]').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.mobile-tab-item[data-mode="${newMode}"]`)?.classList.add('active');
+
+    if (currentMode === 'chat') {
+        chatModeEl.style.display = 'flex';
+        rpgModeEl.style.display = 'none';
+        setTimeout(() => { chatModeEl.style.opacity = '1'; }, 50);
+    } else if (currentMode === 'rpg') {
+        chatModeEl.style.display = 'none';
+        rpgModeEl.style.display = 'flex';
+        setTimeout(() => { rpgModeEl.style.opacity = '1'; }, 50);
+        loadWorlds();
+        if (rpgState.sessionId) {
+            gameScreen.style.display = 'flex';
+            worldSelectScreen.style.display = 'none';
+            if (!storyText.textContent || storyText.textContent.includes('服务器内部错误')) {
+                resumeGame(rpgState.sessionId).catch(e => {
+                    console.error('[ERROR] resumeGame on tab switch:', e);
+                    rpgState.sessionId = null;
+                    gameScreen.style.display = 'none';
+                    worldSelectScreen.style.display = 'block';
+                });
+            }
+        } else {
+            gameScreen.style.display = 'none';
+            worldSelectScreen.style.display = 'block';
+        }
+    }
+
+    isSwitchingMode = false;
+}
+
+async function switchAgent(newAgentId) {
+    if (isSwitchingAgent || currentAgentId === newAgentId) return;
+    isSwitchingAgent = true;
+
+    saveCurrentAgentState();
+
+    const chatBoxEl = chatBox;
+    const agentCardSelector = $('agentCardSelector');
+    
+    if (chatBoxEl) {
+        chatBoxEl.style.opacity = '0';
+        chatBoxEl.style.transform = 'translateX(-20px)';
+    }
+    
+    if (agentCardSelector) {
+        agentCardSelector.style.opacity = '0';
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    agentSelect.value = newAgentId;
+    document.querySelectorAll('.agent-card').forEach(card => {
+        card.classList.remove('active');
+        if (card.dataset.agentId === newAgentId) card.classList.add('active');
+    });
+    
+    currentAgentId = newAgentId;
+    updateAgentHint();
+    restoreAgentState(newAgentId);
+
+    if (chatBoxEl) {
+        chatBoxEl.style.opacity = '1';
+        chatBoxEl.style.transform = 'translateX(0)';
+    }
+    
+    if (agentCardSelector) {
+        agentCardSelector.style.opacity = '1';
+    }
+
+    isSwitchingAgent = false;
+}
+
 // ============================================================
 // 区块 03 · 认证UI
 // ============================================================
@@ -105,6 +218,7 @@ async function loadVersion() {
         const verEl = $('versionDisplay');
         if (verEl) verEl.textContent = data.version || 'v1.0.0';
     } catch (e) {
+        toast('版本信息加载失败', 'warn');
         console.error('[ERROR] fetchVersion:', e);
     }
 }
@@ -149,22 +263,24 @@ async function login() {
         return;
     }
 
-    const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
+    try {
+        const data = await api('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
 
-    if (data.error) {
-        showAuthError(data.error);
-        return;
+        if (data.error) {
+            showAuthError(data.error);
+            return;
+        }
+
+        currentUser = data.user;
+        showMainScreen();
+        showAuthError('');
+    } catch (e) {
+        showAuthError('登录失败，请重试');
+        console.error('[ERROR] login:', e);
     }
-
-    currentUser = data.user;
-    showMainScreen();
-    showAuthError('');
 }
 
 async function register() {
@@ -185,25 +301,33 @@ async function register() {
         return;
     }
 
-    const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-    });
-    const data = await res.json();
+    try {
+        const data = await api('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
 
-    if (data.error) {
-        showAuthError(data.error);
-        return;
+        if (data.error) {
+            showAuthError(data.error);
+            return;
+        }
+
+        currentUser = data.user;
+        showMainScreen();
+        showAuthError('');
+    } catch (e) {
+        showAuthError('注册失败，请重试');
+        console.error('[ERROR] register:', e);
     }
-
-    currentUser = data.user;
-    showMainScreen();
-    showAuthError('');
 }
 
 async function logout() {
-    await api('/api/auth/logout');
+    try {
+        await api('/api/auth/logout');
+    } catch (e) {
+        console.error('[ERROR] logout:', e);
+        toast('退出登录失败', 'warn');
+    }
     currentUser = null;
     rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
     currentMode = 'chat';
@@ -279,8 +403,7 @@ async function populateModels() {
     const sel = $('modelSelect');
     if (!sel) return;
     try {
-        const res = await fetch('/api/models');
-        const models = await res.json();
+        const models = await api('/api/models');
         const hasPersonal = currentUser && currentUser.has_personal_api;
         
         const systemPaid = models.filter(m => m.source === 'system' && (m.credits_per_1k || 1) > 0);
@@ -307,7 +430,7 @@ async function populateModels() {
         sel.innerHTML = html;
         if (models.length) sel.value = models[0].model_id;
     } catch {
-        sel.innerHTML = '<option value="mimo-v2.5-free">🎭 Mimo V2.5</option>';
+        sel.innerHTML = '<option value="">📡 模型加载失败，请刷新重试</option>';
     }
 }
 
@@ -369,40 +492,7 @@ function setupEventListeners() {
     document.querySelectorAll('.mode-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             hideLoading();
-            document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            // 同步移动端 tab 状态
-            document.querySelectorAll('.mobile-tab-item[data-mode]').forEach(t => t.classList.remove('active'));
-            const mobileTab = document.querySelector(`.mobile-tab-item[data-mode="${tab.dataset.mode}"]`);
-            if (mobileTab) mobileTab.classList.add('active');
-            currentMode = tab.dataset.mode;
-
-            const chatModeEl = document.getElementById('chatMode');
-            const rpgModeEl = document.getElementById('rpgMode');
-
-            if (currentMode === 'chat') {
-                chatModeEl.style.display = 'flex';
-                rpgModeEl.style.display = 'none';
-            } else if (currentMode === 'rpg') {
-                chatModeEl.style.display = 'none';
-                rpgModeEl.style.display = 'flex';
-                loadWorlds();
-                if (rpgState.sessionId) {
-                    gameScreen.style.display = 'flex';
-                    worldSelectScreen.style.display = 'none';
-                    if (!storyText.textContent || storyText.textContent.includes('服务器内部错误')) {
-                        resumeGame(rpgState.sessionId).catch(e => {
-                            console.error('[ERROR] resumeGame on tab switch:', e);
-                            rpgState.sessionId = null;
-                            gameScreen.style.display = 'none';
-                            worldSelectScreen.style.display = 'block';
-                        });
-                    }
-                } else {
-                    gameScreen.style.display = 'none';
-                    worldSelectScreen.style.display = 'block';
-                }
-            }
+            switchMode(tab.dataset.mode);
         });
     });
 
@@ -421,40 +511,7 @@ function setupEventListeners() {
     document.querySelectorAll('.mobile-tab-item[data-mode]').forEach(tab => {
         tab.addEventListener('click', () => {
             hideLoading();
-            document.querySelectorAll('.mobile-tab-item').forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            currentMode = tab.dataset.mode;
-            
-            const chatModeEl = document.getElementById('chatMode');
-            const rpgModeEl = document.getElementById('rpgMode');
-            
-            if (currentMode === 'chat') {
-                chatModeEl.style.display = 'flex';
-                rpgModeEl.style.display = 'none';
-                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-                document.querySelector('.mode-tab[data-mode="chat"]').classList.add('active');
-            } else if (currentMode === 'rpg') {
-                chatModeEl.style.display = 'none';
-                rpgModeEl.style.display = 'flex';
-                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-                document.querySelector('.mode-tab[data-mode="rpg"]').classList.add('active');
-                loadWorlds();
-                if (rpgState.sessionId) {
-                    gameScreen.style.display = 'flex';
-                    worldSelectScreen.style.display = 'none';
-                    if (!storyText.textContent || storyText.textContent.includes('服务器内部错误')) {
-                        resumeGame(rpgState.sessionId).catch(e => {
-                            console.error('[ERROR] resumeGame on tab switch:', e);
-                            rpgState.sessionId = null;
-                            gameScreen.style.display = 'none';
-                            worldSelectScreen.style.display = 'block';
-                        });
-                    }
-                } else {
-                    gameScreen.style.display = 'none';
-                    worldSelectScreen.style.display = 'block';
-                }
-            }
+            switchMode(tab.dataset.mode);
         });
     });
 
@@ -472,6 +529,7 @@ async function fetchCsrfToken() {
         const data = await res.json();
         csrfToken = data.csrf_token || '';
     } catch (e) {
+        toast('安全令牌获取失败，部分功能可能不可用', 'warn');
         console.error('[ERROR] fetchCsrfToken:', e);
     }
 }
@@ -491,7 +549,18 @@ async function api(url, opts = {}) {
         credentials: 'include',
         ...opts
     });
-    const data = await res.json();
+    let data;
+    try {
+        data = await res.json();
+    } catch (e) {
+        console.error('[ERROR] api() failed to parse JSON:', e);
+        if (res.status === 401 || res.status === 302) {
+            currentUser = null;
+            showAuthScreen();
+            throw new Error('未登录');
+        }
+        return { error: '服务器响应格式错误' };
+    }
     if (data.error === '未登录') {
         currentUser = null;
         showAuthScreen();
@@ -500,19 +569,40 @@ async function api(url, opts = {}) {
     return data;
 }
 
+async function apiStream(url, opts = {}) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
+    }
+    const res = await fetch(url, {
+        headers,
+        credentials: 'include',
+        ...opts
+    });
+    return res;
+}
+
 // ============================================================
 // 区块 06 · 聊天UI
 // ============================================================
 async function loadAgents() {
     try {
         const data = await api('/api/agents');
-        agentSelect.innerHTML = data.map(a =>
+        const agents = Array.isArray(data) ? data : [];
+        agentSelect.innerHTML = agents.map(a =>
             `<option value="${escapeHtml(a.id)}">${escapeHtml(a.avatar || '🧔')} ${escapeHtml(a.name)} ${a.title ? '— ' + escapeHtml(a.title) : ''}</option>`
         ).join('');
-        if (data.length) agentSelect.value = data[0].id;
+        if (agents.length) {
+            agentSelect.value = agents[0].id;
+            currentAgentId = agents[0].id;
+        }
         updateAgentHint();
-        renderAgentCards(data);
+        renderAgentCards(agents);
     } catch (e) {
+        const skel = $('agentSkeleton');
+        if (skel) skel.style.display = 'none';
+        const cs = $('agentCardSelector');
+        if (cs) { cs.style.display = ''; cs.innerHTML = '<div style="padding:14px 18px;color:var(--text-dim);">加载失败</div>'; }
         console.error('[ERROR] loadAgents:', e);
     }
 }
@@ -520,6 +610,9 @@ async function loadAgents() {
 function renderAgentCards(agents) {
     const cardSelector = $('agentCardSelector');
     if (!cardSelector) return;
+    const skel = $('agentSkeleton');
+    if (skel) skel.style.display = 'none';
+    cardSelector.style.display = '';
     
     cardSelector.innerHTML = agents.map((a, index) => `
         <div class="agent-card ${index === 0 ? 'active' : ''}" data-agent-id="${escapeHtml(a.id)}">
@@ -530,17 +623,25 @@ function renderAgentCards(agents) {
     `).join('');
     
     document.querySelectorAll('.agent-card').forEach(card => {
-        card.addEventListener('click', () => selectAgent(card.dataset.agentId));
+        card.addEventListener('click', () => switchAgent(card.dataset.agentId));
     });
+    
+    const searchInput = $('agentSearchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.addEventListener('input', () => {
+            const q = searchInput.value.toLowerCase();
+            document.querySelectorAll('.agent-card').forEach(card => {
+                const name = card.querySelector('.agent-name')?.textContent?.toLowerCase() || '';
+                const title = card.querySelector('.agent-title')?.textContent?.toLowerCase() || '';
+                card.style.display = name.includes(q) || title.includes(q) ? '' : 'none';
+            });
+        });
+    }
 }
 
 window.selectAgent = function(id) {
-    agentSelect.value = id;
-    document.querySelectorAll('.agent-card').forEach(card => {
-        card.classList.remove('active');
-        if (card.dataset.agentId === id) card.classList.add('active');
-    });
-    updateAgentHint();
+    switchAgent(id);
 }
 
 function updateAgentHint() {
@@ -548,7 +649,9 @@ function updateAgentHint() {
     $('agentHint').textContent = sel ? `当前：${sel.textContent}` : '请选择一位角色聊聊';
 }
 
-agentSelect.addEventListener('change', updateAgentHint);
+agentSelect.addEventListener('change', () => {
+    switchAgent(agentSelect.value);
+});
 
 sendBtn.addEventListener('click', sendMessage);
 messageInput.addEventListener('keydown', e => {
@@ -562,9 +665,13 @@ messageInput.addEventListener('input', () => {
     messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
 });
 
+let isSending = false;
+
 async function sendMessage() {
+    if (isSending) return;
     const msg = messageInput.value.trim();
     if (!msg) return;
+    isSending = true;
     const agentId = agentSelect.value;
     messageInput.value = '';
     messageInput.style.height = 'auto';
@@ -598,6 +705,7 @@ async function sendMessage() {
         thinkDots.remove();
         thinkingEl.querySelector('.md-body').innerHTML = '❌ 网络错误，请重试';
     } finally {
+        isSending = false;
         sendBtn.disabled = false;
         sendBtn.innerHTML = '<span class="btn-icon">🍺</span> 来一杯';
         chatBox.scrollTop = chatBox.scrollHeight;
@@ -692,6 +800,8 @@ async function loadSessions() {
             });
         });
     } catch (e) {
+        $('sessionsCount').textContent = '?';
+        $('sessionsList').innerHTML = '<div class="status-empty">加载失败</div>';
         console.error('[ERROR] loadSessions:', e);
     }
 }
@@ -736,6 +846,7 @@ async function resumeGame(sessionId) {
         rpgState.sessionId = sessionId;
         rpgState.playerName = data.player_name;
         rpgState.world = { id: data.world_id, emoji: '📖', name: '加载中...' };
+        rpgState.sections = data.sections || {};
         try {
             const worlds = await api('/api/rpg/worlds');
             const w = worlds.find(x => x.id === data.world_id);
@@ -801,6 +912,7 @@ async function loadWorlds() {
             });
         });
     } catch (e) {
+        worldGrid.innerHTML = '<div class="status-empty" style="grid-column:1/-1;">加载失败，请刷新重试</div>';
         console.error('[ERROR] loadWorlds:', e);
     }
 }
@@ -924,6 +1036,18 @@ async function startGame(worldId) {
 
     showLoading('📖 世界正在苏醒...', 'AI 主持人正在构建初始场景');
 
+    const loadingStates = [
+        '正在初始化游戏世界...',
+        'AI 主持人正在构思剧情...',
+        '正在生成开场场景...',
+        '即将进入冒险...'
+    ];
+    let stateIdx = 0;
+    const loadingTimer = setInterval(() => {
+        stateIdx = (stateIdx + 1) % loadingStates.length;
+        updateLoadingStatus(loadingStates[stateIdx]);
+    }, 1500);
+
     rpgAbortController = new AbortController();
 
     try {
@@ -932,6 +1056,7 @@ async function startGame(worldId) {
             body: JSON.stringify({ world_id: worldId, player_name: name, model: getSelectedModel() }),
             signal: rpgAbortController.signal
         });
+        clearInterval(loadingTimer);
 
         if (data.error) {
             hideLoading();
@@ -953,7 +1078,12 @@ async function startGame(worldId) {
         gameWorldName.textContent = `${data.world.emoji} ${data.world.name}`;
         gamePlayerName.textContent = `🧑 ${data.player_name}`;
         $('gameRound').textContent = `第${Math.max(1, data.storyline ? data.storyline.length : 0)}轮`;
-        if (shareBtn) { shareBtn.style.display = 'block'; shareBtn.textContent = '🔗 分享'; isShared = false; }
+
+        isShared = !!data.share_token;
+        if (shareBtn) {
+            shareBtn.style.display = 'block';
+            shareBtn.textContent = isShared ? '🔓 取消分享' : '🔗 分享';
+        }
 
         if (data.credits_left !== undefined) {
             currentUser.credits = data.credits_left;
@@ -966,8 +1096,8 @@ async function startGame(worldId) {
         renderChoices(data.story);
         renderStoryline();
         renderRelationships(data.relationships);
-        if (shareBtn) shareBtn.style.display = 'block';
     } catch (e) {
+        clearInterval(loadingTimer);
         if (e.name === 'AbortError') {
             console.log('[INFO] startGame aborted by user');
             return;
@@ -976,21 +1106,21 @@ async function startGame(worldId) {
         hideLoading();
         storyText.textContent = '❌ 游戏启动失败，请重试';
     } finally {
+        clearInterval(loadingTimer);
         rpgAbortController = null;
     }
 }
 
 async function actGame(choice) {
     if (!rpgState.sessionId) return;
+    if (rpgAbortController) return;
     showLoading('🎭 故事继续展开...', '');
 
     rpgAbortController = new AbortController();
 
     try {
-        const resp = await fetch('/api/rpg/act/stream', {
+        const resp = await apiStream('/api/rpg/act/stream', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
             body: JSON.stringify({ session_id: rpgState.sessionId, choice, model: getSelectedModel() }),
             signal: rpgAbortController.signal
         });
@@ -1006,7 +1136,13 @@ async function actGame(choice) {
             buffer = lines.pop() || '';
             for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
-                const json = JSON.parse(line.slice(6));
+                let json;
+                try {
+                    json = JSON.parse(line.slice(6));
+                } catch (e) {
+                    console.error('[ERROR] Failed to parse SSE chunk:', e);
+                    continue;
+                }
                 if (json.type === 'chunk') {
                     full += json.text;
                     storyText.innerHTML = renderMarkdown(full);
@@ -1033,37 +1169,29 @@ async function actGame(choice) {
                     renderChoices(json.story || full);
                     renderStoryline();
                     renderRelationships(json.relationships);
-                    $('gameRound').textContent = `第${Math.max(1, (rpgState.storyline || []).length + 1)}轮`;
-                    hideLoading();
+                    $('gameRound').textContent = `第${Math.max(1, (rpgState.storyline || []).length)}轮`;
                 } else if (json.type === 'error') {
-                    hideLoading();
                     storyText.textContent = '❌ ' + json.text;
                 }
             }
         }
-        // If stream ended without 'done' event, try to process accumulated text
-        if (full && !document.querySelector('.loading-overlay.show')) {
+        if (full && !storyText.textContent.startsWith('❌')) {
             storyText.innerHTML = renderMarkdown(full);
             renderChoices(full);
             renderStoryline();
-        } else if (!document.querySelector('.loading-overlay.show')) {
-            hideLoading();
         }
     } catch (e) {
         if (e.name === 'AbortError') {
             console.log('[INFO] actGame aborted by user');
             return;
         }
-        hideLoading();
         if (!rpgState.sessionId) return;
-        // Fallback to non-streaming
         storyText.textContent = '⏳ 流式连接失败，使用普通模式...';
         try {
             const data = await api('/api/rpg/act', {
                 method: 'POST',
                 body: JSON.stringify({ session_id: rpgState.sessionId, choice, model: getSelectedModel() })
             });
-            hideLoading();
             if (data.error) {
                 if (data.error === '积分不足') { alert('积分不足'); return; }
                 storyText.textContent = '❌ ' + data.error; return;
@@ -1082,6 +1210,7 @@ async function actGame(choice) {
             storyText.textContent = '❌ 故事展开失败，请重试';
         }
     } finally {
+        hideLoading();
         rpgAbortController = null;
     }
 }
@@ -1101,7 +1230,10 @@ function renderMarkdown(text) {
             }
             return escapeHtml(html);
         }
-    } catch (e) { console.error('Render markdown failed:', e); }
+    } catch (e) { 
+        console.error('Render markdown failed:', e); 
+        toast('内容渲染失败', 'warn');
+    }
     // Fallback: basic HTML escape
     return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 }
@@ -1265,8 +1397,10 @@ function renderChoices(storyText) {
             '</div>' +
             '<div class="judge-desc">'+escapeHtml(judgement.slice(0, 200))+'</div>' +
             '<div class="judge-result" id="judgeResult" style="display:none;"></div>' +
-            '<button class="judge-roll-btn" onclick="doSkillCheck('+difficulty+','+realDifficulty+','+modifier+',\''+attribute+'\')">🎲 投掷 d20</button>';
+            '<button class="judge-roll-btn">🎲 投掷 d20</button>';
         choicesArea.appendChild(card);
+        const rollBtn = card.querySelector('.judge-roll-btn');
+        rollBtn.addEventListener('click', () => doSkillCheck(difficulty, realDifficulty, modifier, attribute));
     }
 
     // Find all 【数字】 patterns, only keep those near end of text
@@ -1692,8 +1826,8 @@ window.moveWorldUp = async function(worldId) {
     const idx = worlds.findIndex(w => w.id === worldId);
     if (idx <= 0) return;
     [worlds[idx - 1], worlds[idx]] = [worlds[idx], worlds[idx - 1]];
-    worlds.forEach((w, i) => { w.order = i; });
-    await api('/api/rpg/worlds', { method: 'POST', body: JSON.stringify(worlds) });
+    const order = worlds.map(w => w.id);
+    await api('/api/rpg/worlds/reorder', { method: 'POST', body: JSON.stringify({ order }) });
     renderWorldList();
     loadWorlds();
 };
@@ -1703,20 +1837,19 @@ window.moveWorldDown = async function(worldId) {
     const idx = worlds.findIndex(w => w.id === worldId);
     if (idx < 0 || idx >= worlds.length - 1) return;
     [worlds[idx], worlds[idx + 1]] = [worlds[idx + 1], worlds[idx]];
-    worlds.forEach((w, i) => { w.order = i; });
-    await api('/api/rpg/worlds', { method: 'POST', body: JSON.stringify(worlds) });
+    const order = worlds.map(w => w.id);
+    await api('/api/rpg/worlds/reorder', { method: 'POST', body: JSON.stringify({ order }) });
     renderWorldList();
     loadWorlds();
 };
 
 window.deleteWorld = async function(id) {
     if (!confirm('确定要删除这个世界书吗？')) return;
-    const worlds = await api('/api/rpg/worlds');
-    const filtered = worlds.filter(w => w.id !== id);
-    await api('/api/rpg/worlds', {
-        method: 'POST',
-        body: JSON.stringify(filtered)
-    });
+    const data = await api(`/api/rpg/worlds/${id}`, { method: 'DELETE' });
+    if (data.error) {
+        alert(data.error);
+        return;
+    }
     renderWorldList();
     loadWorlds();
     if (rpgState.world && rpgState.world.id === id) {
@@ -1742,6 +1875,8 @@ async function renderMySubmissions() {
             </div>
         `).join('');
     } catch (e) {
+        $('mySubsCount').textContent = '(加载失败)';
+        $('mySubmissionsList').innerHTML = '<div class="status-empty">加载失败</div>';
         console.error('[ERROR] renderMySubmissions:', e);
     }
 }
@@ -2111,8 +2246,7 @@ window.fillNewModelApiUrl = function() {
 // --- User Models Management ---
 async function loadUserModels() {
     try {
-        const res = await fetch('/api/auth/models');
-        const models = await res.json();
+        const models = await api('/api/auth/models');
         const list = $('userModelsList');
         if (models.length === 0) {
             list.innerHTML = '<div class="status-empty" style="padding:16px;">暂无自定义模型，点击上方"+ 添加模型"添加</div>';
@@ -2152,8 +2286,7 @@ async function deleteUserModel(modelId) {
 
 window.editUserModel = async function(modelId) {
     try {
-        const res = await fetch('/api/auth/models');
-        const models = await res.json();
+        const models = await api('/api/auth/models');
         const m = models.find(x => x.model_id === modelId);
         if (!m) { toast('模型不存在', 'error'); return; }
         $('umEditId').value = m.model_id;
@@ -2594,8 +2727,7 @@ async function spectatePoll() {
         const url = spectateMode === 'admin'
             ? '/api/rpg/admin/spectate/' + spectateToken
             : '/api/rpg/shared/' + spectateToken;
-        const r = await fetch(url);
-        const d = await r.json();
+        const d = await api(url);
         if (d.error) {
             $('specStoryText').textContent = spectateMode === 'admin' ? '会话不存在或已结束' : '会话已结束';
             if (spectateTimer) clearInterval(spectateTimer);
@@ -2619,7 +2751,10 @@ async function spectatePoll() {
                 return '<div class="sl-entry'+(is?' current':'')+'"><div class="sl-round">#'+e.round+'</div><div class="sl-content"><div class="sl-choice"><span class="sl-choice-tag">▸</span>'+escapeHtml(e.choice)+'</div><div class="sl-story">'+escapeHtml(e.story||'')+'</div></div></div>';
             }).join('');
         }
-    } catch(e) { console.error('Spectate render failed:', e); }
+    } catch(e) {
+        $('specStoryText').textContent = '⚠️ 连接中断，正在重试...';
+        console.error('Spectate render failed:', e);
+    }
 }
 
 function renderSectionsHtml(sec) {

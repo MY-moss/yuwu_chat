@@ -134,7 +134,7 @@ def atomic_json_dump(data, file_path, **kwargs):
     except Exception:
         try:
             os.unlink(tmp_path)
-        except:
+        except Exception:
             pass
         raise
 
@@ -148,6 +148,9 @@ def load_version():
         try:
             with open(version_file, "r", encoding="utf-8") as f:
                 v = json.load(f)
+                build = v.get("build", 0)
+                if build > 0:
+                    return f"v{v['major']}.{v['minor']}.{v['patch']}.{build}"
                 return f"v{v['major']}.{v['minor']}.{v['patch']}"
         except Exception as e:
             print(f"[ERROR]: {e}", flush=True)
@@ -545,26 +548,27 @@ def init_db():
             db.session.rollback()
             print(f"[WARN] user_model_config migration: {e}", flush=True)
         admin_exists = db.session.execute(db.text('SELECT COUNT(*) FROM user WHERE username = "admin"')).scalar()
+        admin_pwd = os.getenv("ADMIN_PASSWORD")
         if not admin_exists:
-            admin_pwd = os.getenv("ADMIN_PASSWORD")
             if not admin_pwd:
-                print("[ERROR] ADMIN_PASSWORD environment variable not set. Cannot create admin user.", flush=True)
-                return
+                admin_pwd = "123456"
+                print("[INFO] Using default admin password: 123456. Set ADMIN_PASSWORD env var to change.", flush=True)
             admin = User(username='admin', role='admin', credits=99999)
             admin.set_password(admin_pwd)
             db.session.add(admin)
             db.session.commit()
-        # Seed models that don't exist yet
-        default_models = [
-            {'model_id': 'deepseek-ai/DeepSeek-V3', 'name': 'DeepSeek V3', 'label': '🧠 DeepSeek-V3', 'credits_per_1k': 0},
-            {'model_id': 'deepseek-ai/DeepSeek-V4-Flash', 'name': 'DeepSeek V4 Flash', 'label': '⚡ DeepSeek-V4-Flash', 'credits_per_1k': 0},
-            {'model_id': 'deepseek-ai/DeepSeek-V4-Pro', 'name': 'DeepSeek V4 Pro', 'label': '🔮 DeepSeek-V4-Pro', 'credits_per_1k': 0},
-        ]
-        for m in default_models:
-            exists = db.session.execute(db.text('SELECT COUNT(*) FROM model_config WHERE model_id = :mid'), {'mid': m['model_id']}).scalar()
-            if not exists:
-                model = ModelConfig(**m)
-                db.session.add(model)
+        else:
+            if admin_pwd:
+                admin = User.query.filter_by(username='admin').first()
+                admin.set_password(admin_pwd)
+                db.session.commit()
+                print("[INFO] Admin password updated from environment variable.", flush=True)
+        db.session.commit()
+        # Remove zero-credit models (free models)
+        zero_credit_models = ['deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-V4-Flash', 'deepseek-ai/DeepSeek-V4-Pro']
+        for model_id in zero_credit_models:
+            ModelConfig.query.filter_by(model_id=model_id).delete()
+            UserModelConfig.query.filter_by(model_id=model_id).delete()
         db.session.commit()
         api_key_exists = db.session.execute(db.text('SELECT COUNT(*) FROM api_config WHERE key_name = "API_KEY"')).scalar()
         if not api_key_exists:
@@ -725,9 +729,6 @@ def register():
         return jsonify({"error": "密码长度至少6位"}), 400
     if len(password) > 128:
         return jsonify({"error": "密码长度不能超过128位"}), 400
-    if User.query.filter_by(username=username).first():
-        return jsonify({"error": "用户名已存在"}), 400
-
     user = User(username=username, credits=100)
     user.set_password(password)
     db.session.add(user)
@@ -735,6 +736,8 @@ def register():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
+        if 'UNIQUE constraint failed' in str(e) or 'duplicate key' in str(e).lower():
+            return jsonify({"error": "用户名已存在"}), 400
         print(f"[ERROR] Registration failed: {e}", flush=True)
         return jsonify({"error": "注册失败，请重试"}), 500
 
@@ -818,7 +821,9 @@ def change_password():
     current_user.set_password(new_password)
     db.session.commit()
     
-    return jsonify({"message": "密码修改成功"})
+    logout_user()
+    
+    return jsonify({"message": "密码修改成功，请重新登录"})
 
 
 @app.route("/api/auth/me")
@@ -1018,12 +1023,18 @@ def admin_add_model():
         return jsonify({"error": "model_id、name和label不能为空"}), 400
     if ModelConfig.query.filter_by(model_id=model_id).first():
         return jsonify({"error": "该模型已存在"}), 400
+    try:
+        credits_per_1k = int(credits_per_1k)
+        if credits_per_1k < 0 or credits_per_1k > 1000:
+            return jsonify({"error": "credits_per_1k必须在0到1000之间"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": "credits_per_1k必须是整数"}), 400
 
     model = ModelConfig(
         model_id=model_id,
         name=name,
         label=label,
-        credits_per_1k=int(credits_per_1k),
+        credits_per_1k=credits_per_1k,
         priority=data.get("priority", 100),
         api_base=None,
         api_key=None
@@ -1148,6 +1159,20 @@ def admin_delete_user(user_id):
     if user.role == "admin" and admin_count <= 1:
         return jsonify({"error": "必须至少保留一名管理员"}), 400
 
+    UserModelConfig.query.filter_by(user_id=user_id).delete()
+    Feedback.query.filter_by(user_id=user_id).delete()
+
+    with _histories_lock:
+        for key in list(histories.keys()):
+            if key.startswith(f"{user_id}_"):
+                histories.pop(key, None)
+
+    with _sessions_lock:
+        for sid in list(rpg_sessions.keys()):
+            if rpg_sessions[sid].get("user_id") == user_id:
+                rpg_sessions.pop(sid, None)
+        save_sessions()
+
     db.session.delete(user)
     db.session.commit()
     return jsonify({"status": "ok"})
@@ -1167,9 +1192,21 @@ def list_agents():
 @admin_required
 def add_agent():
     data = request.json
+    if not data:
+        return jsonify({"error": "请求数据不能为空"}), 400
+    required_fields = ["id", "name", "avatar", "model", "system_prompt"]
+    missing = [f for f in required_fields if not data.get(f)]
+    if missing:
+        return jsonify({"error": f"缺少必填字段: {', '.join(missing)}"}), 400
     agents = load_agents()
-    if any(a["id"] == data.get("id") for a in agents):
+    if any(a["id"] == data["id"] for a in agents):
         return jsonify({"error": "智能体ID已存在"}), 400
+    if len(data["id"]) > 100:
+        return jsonify({"error": "智能体ID长度不能超过100"}), 400
+    if len(data["name"]) > 100:
+        return jsonify({"error": "智能体名称长度不能超过100"}), 400
+    if "temperature" in data and (not isinstance(data["temperature"], (int, float)) or data["temperature"] < 0 or data["temperature"] > 2):
+        return jsonify({"error": "temperature必须在0到2之间"}), 400
     agents.append(data)
     save_agents(agents)
     return jsonify(data), 201
@@ -1249,13 +1286,13 @@ def chat():
                 body["messages"].extend([{"role": "user", "content": user_message}])
                 body["messages"].extend(histories[history_key][-19:])
             
-            resp = requests.post(api_url, headers=headers, json=body, timeout=30)
-            if resp.status_code != 200:
-                print(f"[ERROR] chat API failed: {resp.status_code}", flush=True)
-                raise Exception(f"API调用失败")
-            result = resp.json()
-            reply = result["choices"][0]["message"]["content"]
-            total_tokens, _, _ = parse_usage(result)
+            with requests.post(api_url, headers=headers, json=body, timeout=30) as resp:
+                if resp.status_code != 200:
+                    print(f"[ERROR] chat API failed: {resp.status_code}", flush=True)
+                    raise Exception(f"API调用失败")
+                result = resp.json()
+                reply = result["choices"][0]["message"]["content"]
+                total_tokens, _, _ = parse_usage(result)
         else:
             with _histories_lock:
                 if history_key not in histories:
@@ -1325,15 +1362,15 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=400):
             "temperature": temperature,
             "max_tokens": max_tokens
         }
-        resp = requests.post(api_url, headers=headers, json=body, timeout=60)
-        if resp.status_code != 200:
-            print(f"[ERROR] call_ai API failed: {resp.status_code}", flush=True)
-            raise Exception(f"API调用失败")
-        data = resp.json()
-        full = data["choices"][0]["message"]["content"]
-        total_tokens, _, _ = parse_usage(data)
-        story, sections = parse_rpg_reply(full)
-        return story, sections, total_tokens
+        with requests.post(api_url, headers=headers, json=body, timeout=60) as resp:
+            if resp.status_code != 200:
+                print(f"[ERROR] call_ai API failed: {resp.status_code}", flush=True)
+                raise Exception(f"API调用失败")
+            data = resp.json()
+            full = data["choices"][0]["message"]["content"]
+            total_tokens, _, _ = parse_usage(data)
+            story, sections = parse_rpg_reply(full)
+            return story, sections, total_tokens
     except Exception as e:
         print(f"[ERROR] call_ai failed: {e}", flush=True)
         return None, {}, 0
@@ -1408,21 +1445,38 @@ def reorder_worlds():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/rpg/worlds/<world_id>", methods=["DELETE"])
+@login_required
+@admin_required
+def delete_world(world_id):
+    """删除单个世界书"""
+    worlds = load_worlds()
+    original_count = len(worlds)
+    worlds = [w for w in worlds if w["id"] != world_id]
+    if len(worlds) == original_count:
+        return jsonify({"error": "世界书不存在"}), 404
+    worlds.sort(key=lambda w: w.get("order", 0))
+    for i, w in enumerate(worlds):
+        w["order"] = i
+    save_worlds_data(worlds)
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/rpg/active-count", methods=["GET"])
 @login_required
 def active_count():
-    """返回所有用户活跃跑团总数及按世界书统计"""
+    """返回所有用户活跃跑团总数"""
     with _sessions_lock:
-        by_world = {}
-        for sid, s in rpg_sessions.items():
-            wid = s.get("world_id", "unknown")
-            if wid not in by_world:
-                by_world[wid] = 0
-            by_world[wid] += 1
-        return jsonify({
-            "total": len(rpg_sessions),
-            "by_world": by_world
-        })
+        result = {"total": len(rpg_sessions)}
+        if current_user.is_admin:
+            by_world = {}
+            for sid, s in rpg_sessions.items():
+                wid = s.get("world_id", "unknown")
+                if wid not in by_world:
+                    by_world[wid] = 0
+                by_world[wid] += 1
+            result["by_world"] = by_world
+        return jsonify(result)
 
 
 @app.route("/api/rpg/worlds/<world_id>/ratings", methods=["GET"])
@@ -1446,32 +1500,37 @@ def rate_world(world_id):
     review = data.get("review", "").strip()
     if rating < 1 or rating > 5:
         return jsonify({"error": "评分需在1-5之间"}), 400
+
+    worlds = load_worlds()
+    if not any(w["id"] == world_id for w in worlds):
+        return jsonify({"error": "世界书不存在"}), 404
     
-    ratings = load_ratings()
-    if world_id not in ratings:
-        ratings[world_id] = []
-    
-    # Check if user already rated (update or add)
-    user_rating = None
-    for r in ratings[world_id]:
-        if r["user_id"] == current_user.id:
-            user_rating = r
-            break
-    
-    if user_rating:
-        user_rating["rating"] = rating
-        user_rating["review"] = review
-        user_rating["updated_at"] = datetime.now().isoformat()
-    else:
-        ratings[world_id].append({
-            "user_id": current_user.id,
-            "username": current_user.username,
-            "rating": rating,
-            "review": review,
-            "created_at": datetime.now().isoformat()
-        })
-    
-    save_ratings(ratings)
+    with _ratings_lock:
+        ratings = load_ratings()
+        if world_id not in ratings:
+            ratings[world_id] = []
+        
+        # Check if user already rated (update or add)
+        user_rating = None
+        for r in ratings[world_id]:
+            if r["user_id"] == current_user.id:
+                user_rating = r
+                break
+        
+        if user_rating:
+            user_rating["rating"] = rating
+            user_rating["review"] = review
+            user_rating["updated_at"] = datetime.now().isoformat()
+        else:
+            ratings[world_id].append({
+                "user_id": current_user.id,
+                "username": current_user.username,
+                "rating": rating,
+                "review": review,
+                "created_at": datetime.now().isoformat()
+            })
+        
+        save_ratings(ratings)
     
     # Return updated stats
     world_ratings = ratings.get(world_id, [])
@@ -1656,9 +1715,10 @@ def share_session(session_id):
         if not sess.get("share_token"):
             sess["share_token"] = secrets.token_hex(8)
             save_sessions()
+        base_url = request.host_url.rstrip('/')
         return jsonify({
             "share_token": sess["share_token"],
-            "share_url": f"/shared/session/{sess['share_token']}"
+            "share_url": f"{base_url}/shared/session/{sess['share_token']}"
         })
 
 
@@ -1832,6 +1892,7 @@ def start_rpg():
         "relationships": rmap, "sections": sections,
         "player_name": player_name,
         "storyline": rpg_sessions[session_id]["storyline"],
+        "share_token": None,
         "credits_left": current_user.credits,
         "tokens_used": tokens, "cost": cost, "free": personal
     })
@@ -1966,6 +2027,8 @@ def rpg_act_stream():
     api_key, api_url = get_effective_api(model)
     credits_per_1k = get_model_price(model)
 
+    commit_data = {}
+
     def generate():
         if not api_key:
             mock_text = "【状态】\n生命值:100/100\n法力值:50/50\n\n（AI 暂未配置，请管理员在面板中配置 API 密钥）"
@@ -1985,55 +2048,54 @@ def rpg_act_stream():
         full_text = ""
         import json as _json
         try:
-            # First try with streaming
             body["stream"] = True
-            resp = requests.post(api_url, headers=headers, json=body, timeout=60, stream=True)
-            # If streaming fails with 400/422/415/etc, retry without streaming
-            if resp.status_code in (400, 415, 422, 500):
-                body["stream"] = False
-                resp = requests.post(api_url, headers=headers, json=body, timeout=60)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    for ch in full_text:
-                        yield f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"
-                    import time; time.sleep(0.02)
-            elif resp.status_code != 200:
-                try:
-                    err_body = resp.text[:500]
-                except Exception as e:
-                    err_body = ""
-                yield f"data: {_json.dumps({'type':'error','text':f'API {resp.status_code}: {err_body}'})}\n\n"
-                return
-            else:
-                # Normal SSE streaming
-                it = resp.iter_lines()
-                first = next(it, None)
-                if first and not first.startswith(b"data: "):
-                    raw = first + b"".join(list(it))
+            with requests.post(api_url, headers=headers, json=body, timeout=60, stream=True) as resp:
+                if resp.status_code in (400, 415, 422, 500):
+                    body["stream"] = False
+                    with requests.post(api_url, headers=headers, json=body, timeout=60) as resp_retry:
+                        if resp_retry.status_code == 200:
+                            data = resp_retry.json()
+                            full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            for ch in full_text:
+                                yield f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"
+                            import time; time.sleep(0.02)
+                elif resp.status_code != 200:
                     try:
-                        data = _json.loads(raw.decode("utf-8"))
-                        full_text = data.get("choices", [{}])[0].get("message", {}).get("content", full_text)
+                        err_body = resp.text[:500]
+                        print(f"[ERROR] rpg_act_stream API {resp.status_code}: {err_body}", flush=True)
                     except Exception as e:
-                        full_text = raw.decode("utf-8", errors="replace")
+                        err_body = ""
+                        print(f"[ERROR] rpg_act_stream API {resp.status_code}: {e}", flush=True)
+                    yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
+                    return
                 else:
-                    for line in [first] + list(it) if first else list(it):
-                        if not line: continue
-                        decoded = line.decode("utf-8")
-                        if decoded.startswith("data: "):
-                            chunk = decoded[6:]
-                            if chunk.strip() == "[DONE]": break
-                            try:
-                                d = _json.loads(chunk)
-                                delta = d.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                                if delta:
-                                    full_text += delta
-                                    yield f"data: {_json.dumps({'type':'chunk','text':delta})}\n\n"
-                            except Exception as e:
-                                print(f"[ERROR]: {e}", flush=True)
+                    it = resp.iter_lines()
+                    first = next(it, None)
+                    if first and not first.startswith(b"data: "):
+                        raw = first + b"".join(list(it))
+                        try:
+                            data = _json.loads(raw.decode("utf-8"))
+                            full_text = data.get("choices", [{}])[0].get("message", {}).get("content", full_text)
+                        except Exception as e:
+                            full_text = raw.decode("utf-8", errors="replace")
+                    else:
+                        for line in [first] + list(it) if first else list(it):
+                            if not line: continue
+                            decoded = line.decode("utf-8")
+                            if decoded.startswith("data: "):
+                                chunk = decoded[6:]
+                                if chunk.strip() == "[DONE]": break
+                                try:
+                                    d = _json.loads(chunk)
+                                    delta = d.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    if delta:
+                                        full_text += delta
+                                        yield f"data: {_json.dumps({'type':'chunk','text':delta})}\n\n"
+                                except Exception as e:
+                                    print(f"[ERROR]: {e}", flush=True)
         except Exception as e:
             print(f"[ERROR] rpg_act_stream: {e}", flush=True)
-            yield f"data: {_json.dumps({'type':'error','text':str(e)})}\n\n"
+            yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
             return
 
         story, sections = parse_rpg_reply(full_text)
@@ -2048,9 +2110,7 @@ def rpg_act_stream():
             yield f"data: {_json.dumps({'type':'error','text':f'积分不足（需要 {cost} 积分）'})}\n\n"
             return
         if not personal:
-            current_user.total_tokens = (current_user.total_tokens or 0) + total_tokens
-            db.session.commit()
-
+            commit_data["total_tokens"] = total_tokens
         rmap = {}
         rels_str = sections.get("关系", "")
         if rels_str:
@@ -2072,7 +2132,11 @@ def rpg_act_stream():
         log_usage(current_user.id, current_user.username, model, total_tokens, cost, "rpg_act_stream")
         yield f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':cost,'credits_left':current_user.credits,'free':personal})}\n\n"
 
-    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+    response = Response(stream_with_context(generate()), mimetype="text/event-stream")
+    if commit_data.get("total_tokens"):
+        current_user.total_tokens = (current_user.total_tokens or 0) + commit_data["total_tokens"]
+        db.session.commit()
+    return response
 
 
 @app.route("/api/rpg/sessions", methods=["GET"])
@@ -2496,8 +2560,8 @@ def submit_feedback():
 @app.route("/api/feedback", methods=["GET"])
 @login_required
 def list_feedback():
-    page = request.args.get("page", 1, type=int)
-    per_page = request.args.get("per_page", 20, type=int)
+    page = max(1, request.args.get("page", 1, type=int) or 1)
+    per_page = max(1, min(100, request.args.get("per_page", 20, type=int) or 20))
     category = request.args.get("category", "")
     status = request.args.get("status", "")
     search = request.args.get("search", "")
@@ -2610,7 +2674,7 @@ if __name__ == "__main__":
         world_count = len(world_data.get("worlds", []))
     print(f"[MODE]  聊天: {len(agents)} 位智能体 | 跑团: {world_count} 本世界书 | 反馈: /feedback | 已恢复 {len(rpg_sessions)} 个跑团会话")
     if api_key:
-        print(f"[AI]   状态: 已连接 | URL: {api_url}")
+        print(f"[AI]   状态: 已连接")
     else:
         print(f"[AI]   未配置! 请在 .env 填写 AI_API_KEY 或管理员在面板中配置")
     host = os.getenv("HOST", "127.0.0.1")

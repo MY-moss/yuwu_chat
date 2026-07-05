@@ -426,6 +426,7 @@ body {
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 20px;
+    transition: opacity 0.2s ease, transform 0.2s ease;
     margin-bottom: 0;
     display: flex;
     flex-direction: column;
@@ -655,6 +656,20 @@ body {
     margin-top: 4px;
 }
 
+/* Agent Search */
+.agent-search {
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: rgba(42,32,24,0.5);
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+}
+.agent-search:focus { background: rgba(42,32,24,0.8); }
+
 /* Agent Card Selector */
 .agent-card-selector {
     display: flex;
@@ -664,6 +679,7 @@ body {
     scrollbar-width: none;
     border-bottom: 1px solid var(--border);
     background: linear-gradient(180deg, rgba(42,32,24,0.9), transparent);
+    transition: opacity 0.2s ease;
 }
 .agent-card-selector::-webkit-scrollbar { display: none; }
 .agent-card {
@@ -690,6 +706,7 @@ body {
 }
 .agent-card .agent-avatar { font-size: 32px; margin-bottom: 6px; }
 .agent-card .agent-name { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.agent-card .agent-title { font-size: 10px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.85; }
 
 /* Slash Commands */
 .slash-menu {
@@ -788,11 +805,12 @@ body {
    区块 04 · RPG模式
    ============================================================ */
 #chatMode, #rpgMode {
-    transition: opacity 0.2s ease;
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
+    opacity: 1;
 }
 #chatMode { display: flex; }
 #rpgMode { display: none; }
@@ -856,7 +874,7 @@ body {
 .world-card .wc-emoji { font-size: 36px; margin-bottom: 12px; position: relative; z-index: 1; }
 .world-card .wc-name { font-size: 17px; font-weight: 700; color: var(--text-bright); margin-bottom: 4px; position: relative; z-index: 1; }
 .world-card .wc-genre { font-size: 12px; color: var(--gold-dim); margin-bottom: 10px; position: relative; z-index: 1; }
-.world-card .wc-desc { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px; position: relative; z-index: 1; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.world-card .wc-desc { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px; position: relative; z-index: 1; display: -webkit-box; display: box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; box-orient: vertical; overflow: hidden; }
 .world-card .wc-rating {
     display: flex;
     align-items: center;
@@ -1162,6 +1180,29 @@ body {
     0% { transform: translateX(-100%); }
     100% { transform: translateX(100%); }
 }
+/* Skeleton Loading */
+.skeleton-row {
+    display: flex; gap: 12px; padding: 14px 18px; overflow: hidden;
+}
+.skeleton-card {
+    flex-shrink: 0; width: 95px; height: 100px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 12px; position: relative; overflow: hidden;
+}
+.skeleton-card::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+    animation: shimmer 1.5s infinite;
+}
+.skeleton-block {
+    height: 60px; border-radius: 8px;
+    background: var(--bg-card); position: relative; overflow: hidden;
+}
+.skeleton-block::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+    animation: shimmer 1.5s infinite;
+}
 .progress-text {
     font-size: 12px;
     color: var(--text-dim);
@@ -1436,6 +1477,7 @@ body {
     text-align: center;
     letter-spacing: 1px;
 }
+.status-section-title { font-size: 13px; font-weight: 600; color: var(--gold); margin-bottom: 6px; }
 .status-content {
     padding: 12px 14px;
     font-size: 13px;
@@ -1581,8 +1623,11 @@ body {
     font-size: 11px;
     line-height: 1.4;
     display: -webkit-box;
+    display: box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
+    box-orient: vertical;
     overflow: hidden;
     margin-top: 1px;
 }
@@ -1933,7 +1978,7 @@ body {
     flex-direction: column;
     gap: 1px;
 }
-.btn-order {
+.btn-order, .btn-order-up, .btn-order-down {
     background: transparent;
     border: 1px solid var(--border);
     border-radius: 3px;
@@ -1944,8 +1989,8 @@ body {
     transition: 0.15s;
     line-height: 1;
 }
-.btn-order:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
-.btn-order:disabled { opacity: 0.3; cursor: default; }
+.btn-order:hover:not(:disabled), .btn-order-up:hover:not(:disabled), .btn-order-down:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
+.btn-order:disabled, .btn-order-up:disabled, .btn-order-down:disabled { opacity: 0.3; cursor: default; }
 
 .agent-list-item, .world-list-item {
     display: flex;

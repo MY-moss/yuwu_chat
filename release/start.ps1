@@ -26,8 +26,8 @@ if (Test-Path $exePath) {
         Start-Process "http://127.0.0.1:9000"
         & $tavernExePath
     } else {
-        Start-Process "http://127.0.0.1:9000"
-        python app.py
+        Write-Host "  ❌ 未找到可执行文件" -ForegroundColor Red
+        Write-Host "  请确保 tavern.exe 或 云雾酒馆.exe 存在于当前目录" -ForegroundColor Yellow
     }
 }
 

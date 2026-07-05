@@ -37,8 +37,8 @@ if exist "云雾酒馆.exe" (
     start "" http://127.0.0.1:9000
     "tavern.exe"
 ) else (
-    start "" http://127.0.0.1:9000
-    python app.py
+    echo   ❌ 错误: 未找到可执行文件
+    echo   请确保 tavern.exe 或 云雾酒馆.exe 存在于当前目录
 )
 
 echo.

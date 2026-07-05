@@ -59,24 +59,29 @@ function authApi(url, options = {}) {
 // 区块 03 · 初始化
 // ============================================================
 async function init() {
-    const meRes = await api('/api/auth/me');
-    if (meRes.error || !meRes.username) {
-        window.location.href = '/';
-        return;
-    }
-    currentUser = meRes;
-    isAdmin = currentUser.role === 'admin';
-    $('usernameDisplay').textContent = currentUser.username;
+    try {
+        const meRes = await api('/api/auth/me');
+        if (meRes.error || !meRes.username) {
+            window.location.href = '/';
+            return;
+        }
+        currentUser = meRes;
+        isAdmin = currentUser.role === 'admin';
+        $('usernameDisplay').textContent = currentUser.username;
 
-    if (isAdmin) {
-        $('statsBar').style.display = 'flex';
-        loadStats();
-    }
+        if (isAdmin) {
+            $('statsBar').style.display = 'flex';
+            loadStats();
+        }
 
-    loadFeedbackList();
-    setupRating();
-    setupFormSubmit();
-    setupFilters();
+        loadFeedbackList();
+        setupRating();
+        setupFormSubmit();
+        setupFilters();
+    } catch (e) {
+        console.error('[ERROR] feedback init:', e);
+        toast('页面初始化失败，请刷新重试', 'error');
+    }
 }
 
 // ============================================================
@@ -136,28 +141,33 @@ function setupFormSubmit() {
         btn.disabled = true;
         btn.textContent = '提交中...';
 
-        const res = await authApi('/api/feedback', {
-            method: 'POST',
-            body: JSON.stringify({
-                category: $('fbCategory').value,
-                rating: getRating(),
-                title: title,
-                content: content
-            })
-        });
+        try {
+            const res = await authApi('/api/feedback', {
+                method: 'POST',
+                body: JSON.stringify({
+                    category: $('fbCategory').value,
+                    rating: getRating(),
+                    title: title,
+                    content: content
+                })
+            });
 
-        btn.disabled = false;
-        btn.textContent = '✉️ 提交反馈';
-
-        if (res.error) {
-            toast(res.error, 'error');
-        } else {
-            toast(res.message || '提交成功！', 'success');
-            $('fbTitle').value = '';
-            $('fbContent').value = '';
-            currentPage = 1;
-            loadFeedbackList();
-            if (isAdmin) loadStats();
+            if (res.error) {
+                toast(res.error, 'error');
+            } else {
+                toast(res.message || '提交成功！', 'success');
+                $('fbTitle').value = '';
+                $('fbContent').value = '';
+                currentPage = 1;
+                loadFeedbackList();
+                if (isAdmin) loadStats();
+            }
+        } catch (e) {
+            console.error('[ERROR] submit feedback:', e);
+            toast('提交失败，请检查网络连接', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '✉️ 提交反馈';
         }
     });
 }

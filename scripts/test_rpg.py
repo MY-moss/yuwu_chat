@@ -8,14 +8,18 @@ PORT = 9000
 try:
     r = requests.get(f'http://127.0.0.1:{PORT}/', timeout=3)
     print('Server already running')
-except:
+except Exception:
     env = os.environ.copy()
     env['AI_API_KEY'] = 'public'
     env['AI_API_URL'] = 'https://opencode.ai/zen/v1/chat/completions'
     env['PYTHONIOENCODING'] = 'utf-8'
     p = subprocess.Popen(['python', 'app.py'], cwd=BASE_DIR,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     time.sleep(3)
+    if p.poll() is not None:
+        _, err = p.communicate()
+        print(f'Server failed to start: {err.decode("utf-8", errors="replace")[:200]}')
+        sys.exit(1)
     print('Server started')
 
 r = requests.post(f'http://127.0.0.1:{PORT}/api/rpg/start',

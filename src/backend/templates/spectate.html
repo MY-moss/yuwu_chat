@@ -45,27 +45,49 @@
             </div>
         </div>
     </div>
+    <script id="tokenData" type="application/json">{{ token|tojson }}</script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" integrity="sha256-Pn59f+s+XVjLbIBPaKtcJMx+XrYnD9bly7kSRzkhfQw=" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" integrity="sha256-jrQbZYgx+rF1+tm80A/LLYTg7TolpVBT1OzUREuLQ6A=" crossorigin="anonymous"></script>
     <script>
-    const token = '{{ token }}';
+    const token = JSON.parse(document.getElementById('tokenData').textContent);
     function renderMd(t){if(!t)return'';try{if(typeof marked!=='undefined'){marked.setOptions({breaks:true,gfm:true});return DOMPurify.sanitize(marked.parse(t));}}catch(e){}return DOMPurify.sanitize(String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));}
     function escapeHtml(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
     function parseStatVal(v){if(!v||!v.trim())return'<div class="status-empty" style="padding:2px 0;">空</div>';const items=String(v).split(/\s+/).filter(s=>s.includes(':'));if(!items.length)return'<div class="status-item"><span class="status-value">'+escapeHtml(v)+'</span></div>';return items.map(i=>{let n=i.indexOf(':'),label=i.slice(0,n).trim(),value=i.slice(n+1).trim(),cls='status-value';const num=parseFloat(value);if(!isNaN(num))cls+=num<=20?' danger':num>=80?' success':' highlight';return'<div class="status-item"><span class="status-label">'+escapeHtml(label)+'</span><span class="'+cls+'">'+escapeHtml(value)+'</span></div>';}).join('');}
     function renderSections(sec){if(!sec||!Object.keys(sec).length)return'<div class="status-empty">暂无</div>';let h='';for(const[k,v]of Object.entries(sec)){if(k==='关系_map'||typeof v==='object')continue;h+='<div class="status-section"><div class="status-section-title">'+escapeHtml(k)+'</div>'+parseStatVal(v)+'</div>';}const rm=sec['关系_map'];if(rm&&Object.keys(rm).length){h+='<div class="status-section"><div class="status-section-title">关系</div>';h+=Object.entries(rm).map(([kk,vv])=>'<div class="status-item"><span class="status-label">'+escapeHtml(kk)+'</span><span class="status-value highlight">'+escapeHtml(vv)+'</span></div>').join('');h+='</div>';}return h||'<div class="status-empty">暂无</div>';}
+    let pollTimer = null;
     async function poll(){
         try{
-            const r=await fetch('/api/rpg/shared/'+token);const d=await r.json();
-            if(d.error){document.getElementById('st').textContent='会话已结束';return;}
-            document.getElementById('gwn').textContent=(d.world.emoji||'')+' '+d.world.name;
-            document.getElementById('gpn').textContent='🧑 '+d.player_name;
+            const url = '/api/rpg/shared/' + encodeURIComponent(token);
+            const r = await fetch(url);
+            const d = await r.json();
+            if(d.error){
+                document.getElementById('st').textContent='会话已结束';
+                if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
+                return;
+            }
+            const world = d.world || {};
+            document.getElementById('gwn').textContent=(world.emoji||'')+' '+escapeHtml(world.name||'');
+            document.getElementById('gpn').textContent='🧑 '+escapeHtml(d.player_name||'');
             document.getElementById('st').innerHTML=renderMd(d.last_story||'');
             document.getElementById('ss').innerHTML=renderSections(d.sections)||'<div class="status-empty">暂无</div>';
-            if(d.relationship&&Object.keys(d.relationship).length){document.getElementById('rp').style.display='';document.getElementById('rb').innerHTML=Object.entries(d.relationship).map(([k,v])=>'<div class="status-item"><span class="status-label">'+escapeHtml(k)+'</span><span class="status-value highlight">'+escapeHtml(v)+'</span></div>').join('');}
-            if(d.storyline&&d.storyline.length){document.getElementById('sl').innerHTML=d.storyline.map((e,i)=>{let is=i===d.storyline.length-1;return'<div class="sl-entry'+(is?' current':'')+'"><div class="sl-round">#'+e.round+'</div><div class="sl-content"><div class="sl-choice"><span class="sl-choice-tag">▸</span>'+escapeHtml(e.choice)+'</div><div class="sl-story">'+renderMd(e.story||'')+'</div></div></div>';}).join('');}
-        }catch(e){}
+            if(d.relationship&&Object.keys(d.relationship).length){
+                document.getElementById('rp').style.display='';
+                document.getElementById('rb').innerHTML=Object.entries(d.relationship).map(([k,v])=>
+                    '<div class="status-item"><span class="status-label">'+escapeHtml(k)+'</span><span class="status-value highlight">'+escapeHtml(v)+'</span></div>'
+                ).join('');
+            }
+            if(d.storyline&&d.storyline.length){
+                document.getElementById('sl').innerHTML=d.storyline.map((e,i)=>{
+                    let is=i===d.storyline.length-1;
+                    return'<div class="sl-entry'+(is?' current':'')+'"><div class="sl-round">#'+e.round+'</div><div class="sl-content"><div class="sl-choice"><span class="sl-choice-tag">▸</span>'+escapeHtml(e.choice)+'</div><div class="sl-story">'+renderMd(e.story||'')+'</div></div></div>';
+                }).join('');
+            }
+        }catch(e){
+            console.error('[ERROR] spectate poll:', e);
+        }
     }
-    poll();setInterval(poll,2000);
+    poll();
+    pollTimer = setInterval(poll, 2000);
     </script>
 </body>
 </html>

@@ -11,7 +11,7 @@ echo.
 set "BUILD_DIR=build"
 set "DIST_DIR=dist"
 set "OUTPUT_DIR=release"
-set "VERSION_FILE=version.json"
+set "VERSION_FILE=src/backend/version.json"
 
 if "%1"=="major" goto BUMP_MAJOR
 if "%1"=="minor" goto BUMP_MINOR
@@ -70,8 +70,8 @@ pyinstaller ^
     --add-data "src/backend\world_submissions.json;." ^
     --add-data "src/backend\rpg_sessions.json;." ^
     --add-data "src/backend\usage_log.json;." ^
-    --add-data "version.json;." ^
-    --add-data "CHANGELOG.json;." ^
+    --add-data "src/backend/version.json;." ^
+    --add-data "src/backend/CHANGELOG.json;." ^
     --hidden-import=flask_sqlalchemy ^
     --hidden-import=flask_login ^
     --hidden-import=werkzeug.security ^
@@ -107,7 +107,7 @@ copy "src/backend\rpg_sessions.json" "%OUTPUT_DIR%\rpg_sessions.json" >nul
 copy "src/backend\usage_log.json" "%OUTPUT_DIR%\usage_log.json" >nul
 copy "src/backend\feedback.json" "%OUTPUT_DIR%\feedback.json" >nul
 copy "%VERSION_FILE%" "%OUTPUT_DIR%\version.json" >nul
-copy "CHANGELOG.json" "%OUTPUT_DIR%\CHANGELOG.json" >nul
+copy "src/backend/CHANGELOG.json" "%OUTPUT_DIR%\CHANGELOG.json" >nul
 copy "src/backend\requirements.txt" "%OUTPUT_DIR%\requirements.txt" >nul
 
 if exist "src/backend/tavern.db" (
