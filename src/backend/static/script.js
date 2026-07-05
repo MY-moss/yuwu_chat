@@ -192,8 +192,19 @@ async function register() {
 }
 
 async function logout() {
-    await fetch('/api/auth/logout');
+    await api('/api/auth/logout');
     currentUser = null;
+    rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
+    currentMode = 'chat';
+    isShared = false;
+    editingAgentId = null;
+    editingWorldId = null;
+    editingModelId = null;
+    if (spectateTimer) { clearInterval(spectateTimer); spectateTimer = null; }
+    if (spectateRefreshTimer) { clearInterval(spectateRefreshTimer); spectateRefreshTimer = null; }
+    chatBox.innerHTML = '';
+    storyText.innerHTML = '';
+    choicesArea.innerHTML = '';
     showAuthScreen();
 }
 
@@ -665,6 +676,7 @@ async function loadSessions() {
 function formatTime(iso) {
     if (!iso) return '';
     const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
     const now = new Date();
     const diff = now - d;
     if (diff < 60000) return '刚刚';
@@ -1276,6 +1288,8 @@ function calculateRealDifficulty(baseDiff, sections) {
     return Math.max(5, Math.min(30, realDiff));
 }
 
+let skillCheckTimer = null;
+
 function doSkillCheck(baseDifficulty, realDifficulty, modifier, attribute) {
     const btn = document.querySelector('.judge-roll-btn');
     if (btn) btn.disabled = true;
@@ -1285,7 +1299,9 @@ function doSkillCheck(baseDifficulty, realDifficulty, modifier, attribute) {
     resultEl.className = 'judge-result';
     resultEl.innerHTML = '<span class="judge-rolling">🎲 投掷中...</span>';
 
-    setTimeout(() => {
+    if (skillCheckTimer) clearTimeout(skillCheckTimer);
+    skillCheckTimer = setTimeout(() => {
+        skillCheckTimer = null;
         const roll = Math.floor(Math.random() * 20) + 1;
         const total = roll + modifier;
         const success = total >= realDifficulty;
@@ -1633,7 +1649,7 @@ window.deleteWorld = async function(id) {
     renderWorldList();
     loadWorlds();
     if (rpgState.world && rpgState.world.id === id) {
-        rpgState = { sessionId: null, world: null, playerName: '' };
+        rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
         gameScreen.style.display = 'none';
         worldSelectScreen.style.display = 'block';
     }
@@ -1714,34 +1730,39 @@ $('worldEditorCancel').addEventListener('click', () => worldEditorModal.classLis
 worldEditorModal.addEventListener('click', e => { if (e.target === worldEditorModal) worldEditorModal.classList.remove('show'); });
 
 $('worldEditorSave').addEventListener('click', async () => {
-    const id = $('wEditId').value.trim();
-    const name = $('wEditName').value.trim();
-    if (!id || !name) { alert('ID和名称不能为空'); return; }
-    const world = {
-        id,
-        name,
-        emoji: $('wEditEmoji').value.trim() || '📖',
-        genre: $('wEditGenre').value.trim(),
-        desc: $('wEditDesc').value.trim(),
-        system_prompt: $('wEditPrompt').value.trim(),
-        temperature: parseFloat($('wEditTemp').value) || 0.85,
-        max_tokens: parseInt($('wEditMaxTokens').value) || 700
-    };
-    let worlds = await api('/api/rpg/worlds');
-    if (editingWorldId) {
-        const idx = worlds.findIndex(w => w.id === editingWorldId);
-        if (idx >= 0) worlds[idx] = world;
-    } else {
-        if (worlds.some(w => w.id === id)) { alert('该ID已存在'); return; }
-        worlds.push(world);
+    try {
+        const id = $('wEditId').value.trim();
+        const name = $('wEditName').value.trim();
+        if (!id || !name) { alert('ID和名称不能为空'); return; }
+        const world = {
+            id,
+            name,
+            emoji: $('wEditEmoji').value.trim() || '📖',
+            genre: $('wEditGenre').value.trim(),
+            desc: $('wEditDesc').value.trim(),
+            system_prompt: $('wEditPrompt').value.trim(),
+            temperature: parseFloat($('wEditTemp').value) || 0.85,
+            max_tokens: parseInt($('wEditMaxTokens').value) || 700
+        };
+        let worlds = await api('/api/rpg/worlds');
+        if (editingWorldId) {
+            const idx = worlds.findIndex(w => w.id === editingWorldId);
+            if (idx >= 0) worlds[idx] = world;
+        } else {
+            if (worlds.some(w => w.id === id)) { alert('该ID已存在'); return; }
+            worlds.push(world);
+        }
+        await api('/api/rpg/worlds', {
+            method: 'POST',
+            body: JSON.stringify(worlds)
+        });
+        worldEditorModal.classList.remove('show');
+        renderWorldList();
+        loadWorlds();
+    } catch (e) {
+        console.error('[ERROR] worldEditorSave:', e);
+        alert('保存失败：' + e.message);
     }
-    await api('/api/rpg/worlds', {
-        method: 'POST',
-        body: JSON.stringify(worlds)
-    });
-    worldEditorModal.classList.remove('show');
-    renderWorldList();
-    loadWorlds();
 });
 
 // ===== Admin Panel =====
@@ -1997,16 +2018,21 @@ async function loadAdminKeys() {
 }
 
 $('genKeyBtn').addEventListener('click', async () => {
-    const credits = parseInt($('keyCredits').value) || 100;
-    const count = parseInt($('keyCount').value) || 1;
-    const data = await api('/api/admin/credit-keys', {
-        method: 'POST',
-        body: JSON.stringify({ credits, count })
-    });
-    if (data.error) { alert(data.error); return; }
-    const keysText = data.keys.join('\n');
-    alert(`已生成 ${data.count} 个 ${data.credits} 积分密钥：\n\n${keysText}\n\n请复制并分发给用户`);
-    loadAdminKeys();
+    try {
+        const credits = parseInt($('keyCredits').value) || 100;
+        const count = parseInt($('keyCount').value) || 1;
+        const data = await api('/api/admin/credit-keys', {
+            method: 'POST',
+            body: JSON.stringify({ credits, count })
+        });
+        if (data.error) { alert(data.error); return; }
+        const keysText = data.keys.join('\n');
+        alert(`已生成 ${data.count} 个 ${data.credits} 积分密钥：\n\n${keysText}\n\n请复制并分发给用户`);
+        loadAdminKeys();
+    } catch (e) {
+        console.error('[ERROR] genKeyBtn:', e);
+        alert('生成密钥失败：' + e.message);
+    }
 });
 
 window.deleteKey = async function(id) {

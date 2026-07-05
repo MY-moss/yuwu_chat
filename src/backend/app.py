@@ -228,8 +228,10 @@ def save_sessions():
         max_sessions = 500
         if len(keep) > max_sessions:
             print(f"[WARNING] save_sessions: truncating {len(keep)} sessions to {max_sessions}", flush=True)
-            keys = list(keep.keys())[-max_sessions:]
-            keep = {k: keep[k] for k in keys}
+            oldest_keys = sorted(keep.keys(), key=lambda x: keep[x].get("created_at", ""))[:-max_sessions]
+            for old_key in oldest_keys:
+                print(f"[WARNING] save_sessions: removing old session {old_key}", flush=True)
+                keep.pop(old_key)
         atomic_json_dump(keep, SESSIONS_FILE, default=str)
 
 
@@ -1896,15 +1898,11 @@ def rpg_act_stream():
     if not world:
         return jsonify({"error": "世界数据已丢失"}), 404
 
-    sess["history"].append({"role": "assistant", "content": sess.get("last_story", "")})
     prev = sess.get("sections", {})
     ctx = f"我选择：{choice}"
     if prev:
         ctx += "\n\n当前数据：" + "; ".join(f"【{k}】{v}" for k, v in prev.items() if not isinstance(v, dict))
     ctx += "\n\n请继续故事并输出更新后的所有数据段"
-    sess["history"].append({"role": "user", "content": ctx})
-    if len(sess["history"]) > 30:
-        sess["history"] = [sess["history"][0]] + sess["history"][-28:]
     sess["model"] = model
 
     api_key, api_url = get_effective_api(model)
@@ -1918,7 +1916,12 @@ def rpg_act_stream():
             yield f"data: {_json.dumps({'type':'done'})}\n\n"
             return
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        body = {"model": model, "messages": sess["history"],
+        temp_history = sess["history"].copy()
+        temp_history.append({"role": "assistant", "content": sess.get("last_story", "")})
+        temp_history.append({"role": "user", "content": ctx})
+        if len(temp_history) > 30:
+            temp_history = [temp_history[0]] + temp_history[-28:]
+        body = {"model": model, "messages": temp_history,
                 "temperature": world.get("temperature", 0.85),
                 "max_tokens": world.get("max_tokens", 400)}
         full_text = ""
@@ -2003,6 +2006,7 @@ def rpg_act_stream():
         sess["sections"] = sections
         sess["last_state"] = state_str
         sess["last_active"] = datetime.now().isoformat()
+        sess["history"] = temp_history
         rnd = len(sess.get("storyline", []))
         sess.setdefault("state_log", []).append({"round": rnd, "sections": dict(sections)})
         sess["storyline"].append({"round": rnd, "choice": choice, "story": story[:150], "sections": dict(sections)})
@@ -2143,16 +2147,19 @@ def branch_session(session_id):
 
     # Truncate message history: keep system prompt + user/assistant pairs up to target
     history = sess.get("history", [])
-    # history[0] = system prompt, then pairs of (assistant, user)
-    # target=0 means keep system + 1st round (assistant+user), total 3 messages
-    kept = [history[0]] if history else []
-    pair_count = 0
-    for msg in history[1:]:
-        if pair_count >= (target + 1) * 2:
-            break
-        kept.append(msg)
-        pair_count += 1
-    sess["history"] = kept
+    if not history:
+        sess["history"] = []
+    else:
+        kept = [history[0]]
+        pair_count = 0
+        for msg in history[1:]:
+            if pair_count >= (target + 1) * 2:
+                break
+            kept.append(msg)
+            pair_count += 1
+        if len(kept) > 1 and kept[-1].get("role") == "assistant":
+            kept.pop()
+        sess["history"] = kept
     sess["last_active"] = datetime.now().isoformat()
 
     rels_str = last_sections.get("关系", "")
