@@ -7,13 +7,16 @@ let csrfToken = '';
 const $ = id => document.getElementById(id);
 const toastContainer = $('toastContainer');
 
+const TOAST_DURATION = 3000;
+
 function toast(msg, type) {
+    if (!msg) return;
     const d = document.createElement('div');
     d.className = 'toast ' + (type || 'info');
     d.textContent = msg;
     toastContainer.appendChild(d);
     setTimeout(() => d.classList.add('show'), 10);
-    setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, 2500);
+    setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, TOAST_DURATION);
 }
 
 async function fetchCsrfToken() {
@@ -169,7 +172,7 @@ async function loadFeedbackList() {
     const data = await authApi(url);
 
     if (data.error) {
-        $('fbList').innerHTML = `<div class="fb-empty">加载失败: ${data.error}</div>`;
+        $('fbList').innerHTML = `<div class="fb-empty">加载失败: ${escapeHtml(data.error)}</div>`;
         return;
     }
 
