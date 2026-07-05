@@ -1,4 +1,10 @@
-// ===== Feedback Page Logic =====
+// ============================================================
+// 文件: feedback.js | 职责: 反馈页面逻辑 | 区块数: 9
+// ============================================================
+
+// ============================================================
+// 区块 01 · 全局状态
+// ============================================================
 let currentPage = 1;
 let currentUser = null;
 let isAdmin = false;
@@ -29,7 +35,9 @@ async function fetchCsrfToken() {
 
 fetchCsrfToken();
 
-// ===== API Helpers =====
+// ============================================================
+// 区块 02 · API Helpers
+// ============================================================
 async function api(url, options = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (csrfToken) {
@@ -47,7 +55,9 @@ function authApi(url, options = {}) {
     return api(url, options);
 }
 
-// ===== Init =====
+// ============================================================
+// 区块 03 · 初始化
+// ============================================================
 async function init() {
     const meRes = await api('/api/auth/me');
     if (meRes.error || !meRes.username) {
@@ -69,7 +79,9 @@ async function init() {
     setupFilters();
 }
 
-// ===== Rating Stars =====
+// ============================================================
+// 区块 04 · 评分星星
+// ============================================================
 function setupRating() {
     const stars = document.querySelectorAll('.fb-star');
     let currentRating = 3;
@@ -108,7 +120,9 @@ function getRating() {
     return r || 3;
 }
 
-// ===== Submit =====
+// ============================================================
+// 区块 05 · 提交反馈
+// ============================================================
 function setupFormSubmit() {
     $('fbSubmitBtn').addEventListener('click', async () => {
         const title = $('fbTitle').value.trim();
@@ -148,7 +162,9 @@ function setupFormSubmit() {
     });
 }
 
-// ===== Filters =====
+// ============================================================
+// 区块 06 · 筛选器
+// ============================================================
 function setupFilters() {
     $('fbFilterCategory').addEventListener('change', () => { currentPage = 1; loadFeedbackList(); });
     $('fbFilterStatus').addEventListener('change', () => { currentPage = 1; loadFeedbackList(); });
@@ -163,7 +179,9 @@ function debounce(fn, delay) {
     };
 }
 
-// ===== Load List =====
+// ============================================================
+// 区块 07 · 加载列表
+// ============================================================
 async function loadFeedbackList() {
     const category = $('fbFilterCategory').value;
     const status = $('fbFilterStatus').value;
@@ -240,7 +258,9 @@ function formatDate(dateStr) {
     }
 }
 
-// ===== Stats (Admin) =====
+// ============================================================
+// 区块 08 · 统计（管理员）
+// ============================================================
 async function loadStats() {
     const data = await authApi('/api/feedback/stats');
     if (data.error) return;
@@ -251,7 +271,9 @@ async function loadStats() {
     $('statRating').textContent = data.avg_rating;
 }
 
-// ===== Detail Modal =====
+// ============================================================
+// 区块 09 · 详情弹窗
+// ============================================================
 async function openFbDetail(id) {
     const data = await authApi(`/api/feedback/${id}`);
     if (data.error) {
@@ -365,3 +387,5 @@ function escapeHtml(s) {
 }
 
 init();
+
+// ===== END OF FILE =====

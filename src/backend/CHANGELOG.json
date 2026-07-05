@@ -1,6 +1,14 @@
 {
     "history": [
         {
+            "version": "v2.1.5",
+            "old_version": "v2.1.4",
+            "type": "minor",
+            "type_desc": "代码结构优化",
+            "description": "代码逻辑分类重组：5个源码文件添加统一分区注释（app.py=22区块/script.js=18/style.css=9/feedback.js=9/feedback.css=6，合计64区块）；新建 docs/代码分类索引.md 和根目录 启动.bat；删除 release/app.py；更新架构文档",
+            "timestamp": "2026-07-05 23:00:00"
+        },
+        {
             "version": "v2.1.4",
             "old_version": "v2.1.3",
             "type": "patch",

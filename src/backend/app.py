@@ -1,3 +1,10 @@
+# ============================================================
+# 文件: app.py | 职责: Flask主应用 | 区块数: 22
+# ============================================================
+
+# ============================================================
+# 区块 01 · 导入与配置
+# ============================================================
 import os
 import sys
 import json
@@ -21,6 +28,9 @@ def get_base_path():
 
 BASE_PATH = get_base_path()
 
+# ============================================================
+# 区块 02 · 工具与安全
+# ============================================================
 def is_safe_url(url):
     try:
         p = urlparse(url)
@@ -112,6 +122,9 @@ SESSIONS_FILE = os.path.join(BASE_PATH, "rpg_sessions.json")
 import tempfile
 import shutil
 
+# ============================================================
+# 区块 03 · JSON 数据层
+# ============================================================
 def atomic_json_dump(data, file_path, **kwargs):
     fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path) or None)
     try:
@@ -342,6 +355,9 @@ def log_usage(user_id, username, model, tokens, cost, endpoint):
 # ===== 反馈系统（已迁移至 Feedback 模型，文件读写已废弃）=====
 
 
+# ============================================================
+# 区块 04 · 数据库模型
+# ============================================================
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -492,6 +508,9 @@ class Feedback(db.Model):
         }
 
 
+# ============================================================
+# 区块 05 · 认证辅助
+# ============================================================
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -554,6 +573,9 @@ def init_db():
             db.session.commit()
 
 
+# ============================================================
+# 区块 06 · Agent 与 AI 工具
+# ============================================================
 def load_agents():
     try:
         with _agents_lock:
@@ -667,6 +689,9 @@ def get_effective_api(model_id=None, user=None):
     return key, url
 
 
+# ============================================================
+# 区块 07 · 页面路由
+# ============================================================
 @app.route("/")
 def index():
     agents = load_agents()
@@ -681,6 +706,9 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+# ============================================================
+# 区块 08 · 用户认证路由
+# ============================================================
 @app.route("/api/auth/register", methods=["POST"])
 def register():
     data = request.json
@@ -810,6 +838,9 @@ def ping_active():
     return jsonify({"status": "ok"})
 
 
+# ============================================================
+# 区块 09 · 版本路由
+# ============================================================
 @app.route("/version")
 def get_version():
     return jsonify({"version": VERSION})
@@ -871,6 +902,9 @@ def list_models():
     return jsonify(all_models)
 
 
+# ============================================================
+# 区块 10 · 模型管理路由
+# ============================================================
 @app.route("/api/auth/models", methods=["GET"])
 @login_required
 def list_user_models():
@@ -1058,6 +1092,9 @@ def admin_delete_model(model_id):
     return jsonify({"status": "ok"})
 
 
+# ============================================================
+# 区块 11 · 管理员用户管理
+# ============================================================
 @app.route("/api/admin/users", methods=["GET"])
 @login_required
 @admin_required
@@ -1116,6 +1153,9 @@ def admin_delete_user(user_id):
     return jsonify({"status": "ok"})
 
 
+# ============================================================
+# 区块 12 · Agents CRUD
+# ============================================================
 @app.route("/api/agents", methods=["GET"])
 @login_required
 def list_agents():
@@ -1164,6 +1204,9 @@ def delete_agent(agent_id):
     return jsonify({"status": "ok"})
 
 
+# ============================================================
+# 区块 13 · 聊天核心
+# ============================================================
 @app.route("/api/chat", methods=["POST"])
 @login_required
 def chat():
@@ -1319,6 +1362,9 @@ def parse_rpg_reply(text):
     return story.strip(), sections
 
 
+# ============================================================
+# 区块 14 · RPG 世界
+# ============================================================
 @app.route("/api/rpg/worlds", methods=["GET"])
 @login_required
 def list_worlds():
@@ -1526,6 +1572,9 @@ def my_submissions():
 
 
 # ===== Admin Stats =====
+# ============================================================
+# 区块 15 · 管理员统计
+# ============================================================
 @app.route("/api/admin/stats", methods=["GET"])
 @login_required
 @admin_required
@@ -1627,6 +1676,9 @@ def unshare_session(session_id):
         return jsonify({"status": "ok"})
 
 
+# ============================================================
+# 区块 16 · 分享与观战
+# ============================================================
 @app.route("/api/rpg/shared/<share_token>")
 def view_shared_session(share_token):
     with _sessions_lock:
@@ -1701,6 +1753,9 @@ def admin_spectate_session(session_id):
     })
 
 
+# ============================================================
+# 区块 17 · RPG 会话
+# ============================================================
 @app.route("/api/rpg/start", methods=["POST"])
 @login_required
 def start_rpg():
@@ -2200,6 +2255,9 @@ def delete_session(session_id):
 
 
 # ===== Edit & Resubmit Submission =====
+# ============================================================
+# 区块 18 · 投稿编辑
+# ============================================================
 @app.route("/api/rpg/worlds/submissions/<sub_id>", methods=["PUT"])
 @login_required
 def edit_submission(sub_id):
@@ -2239,6 +2297,9 @@ def delete_my_submission(sub_id):
 
 
 # ===== API Config (Admin) =====
+# ============================================================
+# 区块 19 · API 配置/卡密
+# ============================================================
 @app.route("/api/admin/api-config", methods=["GET"])
 @login_required
 @admin_required
@@ -2352,6 +2413,9 @@ def delete_credit_key(key_id):
 
 
 # ===== Redeem (User) =====
+# ============================================================
+# 区块 20 · 兑换
+# ============================================================
 @app.route("/api/redeem", methods=["POST"])
 @login_required
 def redeem_key():
@@ -2382,6 +2446,9 @@ def redeem_key():
 
 # ===== 反馈系统路由 =====
 
+# ============================================================
+# 区块 21 · 反馈系统
+# ============================================================
 @app.route("/feedback")
 @login_required
 def feedback_page():
@@ -2524,6 +2591,9 @@ def delete_feedback(feedback_id):
     return jsonify({"message": "已删除"})
 
 
+# ============================================================
+# 区块 22 · 启动入口
+# ============================================================
 if __name__ == "__main__":
     import sys
     if hasattr(sys.stdout, 'reconfigure'):
@@ -2560,3 +2630,5 @@ if __name__ == "__main__":
         return render_template('index.html'), 500
 
     app.run(debug=False, host=host, port=9000)
+
+# ===== END OF FILE =====

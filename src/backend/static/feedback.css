@@ -1,8 +1,12 @@
-/* ===== 反馈页面专属样式 ===== */
+/* ============================================================
+   文件: feedback.css | 职责: 反馈页面样式 | 区块数: 6
+   ============================================================ */
 
+/* ============================================================
+   区块 01 · 全局与统计
+   ============================================================ */
 .fb-container { padding-top: 16px; max-width: 1100px; margin: 0 auto; }
 
-/* Stats Bar */
 .fb-stats-bar {
     display: flex;
     gap: 20px;
@@ -27,7 +31,9 @@
     font-family: 'Noto Serif SC', serif;
 }
 
-/* Layout */
+/* ============================================================
+   区块 02 · 布局
+   ============================================================ */
 .fb-layout {
     display: flex;
     gap: 20px;
@@ -52,7 +58,7 @@
     overflow: hidden;
 }
 
-/* Panel Header */
+/* --- Panel Header --- */
 .fb-panel-header {
     display: flex;
     justify-content: space-between;
@@ -65,7 +71,9 @@
     font-size: 14px;
 }
 
-/* Form */
+/* ============================================================
+   区块 03 · 表单
+   ============================================================ */
 .fb-form-body { padding: 16px; }
 .fb-form-group { margin-bottom: 14px; }
 .fb-form-group label {
@@ -94,7 +102,7 @@
 .fb-textarea { resize: vertical; min-height: 140px; line-height: 1.6; }
 .fb-hint { font-size: 12px; color: var(--text-dim); margin-top: 12px; text-align: center; line-height: 1.6; }
 
-/* Rating Stars */
+/* --- Rating Stars --- */
 .fb-rating { display: flex; gap: 4px; }
 .fb-star {
     font-size: 28px;
@@ -106,7 +114,7 @@
 .fb-star:hover, .fb-star.active { color: var(--gold); }
 .fb-star:hover { transform: scale(1.2); }
 
-/* Submit Button */
+/* --- Submit Button --- */
 .fb-submit-btn {
     width: 100%;
     padding: 12px;
@@ -124,7 +132,9 @@
 .fb-submit-btn:active { transform: translateY(0); }
 .fb-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-/* Filters */
+/* ============================================================
+   区块 04 · 筛选器
+   ============================================================ */
 .fb-filters { display: flex; gap: 8px; align-items: center; }
 .fb-search-input {
     padding: 6px 10px;
@@ -149,7 +159,9 @@
 }
 .fb-filter-select:focus { outline: none; border-color: var(--gold); }
 
-/* Feedback List */
+/* ============================================================
+   区块 05 · 反馈列表
+   ============================================================ */
 .fb-list {
     padding: 8px 12px;
     max-height: calc(100vh - 280px);
@@ -204,7 +216,7 @@
     color: var(--text-dim);
 }
 
-/* Tags */
+/* --- Tags --- */
 .fb-tag {
     display: inline-block;
     padding: 2px 8px;
@@ -230,7 +242,7 @@
 .fb-status-resolved { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
 .fb-status-closed { background: rgba(149, 165, 166, 0.2); color: #95a5a6; }
 
-/* Rating display */
+/* --- Rating display --- */
 .fb-card-rating {
     display: flex;
     gap: 1px;
@@ -239,7 +251,7 @@
 .fb-card-rating .star-on { color: var(--gold); }
 .fb-card-rating .star-off { color: var(--border); }
 
-/* Pagination */
+/* --- Pagination --- */
 .fb-pagination {
     display: flex;
     justify-content: center;
@@ -263,7 +275,9 @@
 .fb-page-btn.active { background: var(--gold-dim); color: var(--bg-dark); border-color: var(--gold-dim); font-weight: 700; }
 .fb-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Detail Modal */
+/* ============================================================
+   区块 06 · 详情弹窗与响应式
+   ============================================================ */
 #fbDetailBody { padding: 16px; max-height: 60vh; overflow-y: auto; }
 .fb-detail-section { margin-bottom: 16px; }
 .fb-detail-label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
@@ -322,7 +336,7 @@
 }
 .fb-admin-delete:hover { background: rgba(192, 57, 43, 0.1); }
 
-/* Responsive */
+/* --- Responsive --- */
 @media (max-width: 800px) {
     .fb-layout { flex-direction: column; }
     .fb-form-panel { width: 100%; min-width: 0; position: static; }
@@ -334,3 +348,5 @@
     .fb-search-input { flex: 1; min-width: 0; }
     .fb-admin-actions { flex-direction: column; align-items: stretch; }
 }
+
+/* ===== END OF FILE ===== */

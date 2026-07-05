@@ -1,4 +1,11 @@
-﻿* { margin: 0; padding: 0; box-sizing: border-box; }
+﻿/* ============================================================
+   文件: style.css | 职责: 主样式表 | 区块数: 9
+   ============================================================ */
+
+/* ============================================================
+   区块 01 · 基础与变量
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
 a, button, input, textarea, select { font-family: inherit; }
 @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&family=Noto+Sans+SC:wght@400;500;700&display=swap');
 body {
@@ -33,7 +40,9 @@ body {
     pointer-events: none;
 }
 
-/* ===== Auth Screen ===== */
+/* ============================================================
+   区块 02 · 认证界面
+   ============================================================ */
 .auth-screen {
     display: flex;
     justify-content: center;
@@ -375,7 +384,9 @@ body {
     transform: translateX(100%);
 }
 
-/* ===== Chat Mode ===== */
+/* ============================================================
+   区块 03 · 聊天模式
+   ============================================================ */
 .tavern-info {
     display: flex;
     gap: 8px;
@@ -773,7 +784,9 @@ body {
 
 .hint { text-align: center; font-size: 12px; color: var(--text-dim); padding-top: 8px; }
 
-/* ===== RPG Mode ===== */
+/* ============================================================
+   区块 04 · RPG模式
+   ============================================================ */
 #chatMode, #rpgMode {
     transition: opacity 0.2s ease;
     flex: 1;
@@ -1013,6 +1026,7 @@ body {
 }
 .story-box::-webkit-scrollbar { width: 6px; }
 .story-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.story-text:empty + .story-hint { display: none; }
 
 .story-text {
     font-size: 14px;
@@ -1292,7 +1306,7 @@ body {
 .side-panel::-webkit-scrollbar { width: 4px; }
 .side-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
-/* ===== Spectate / Monitor Mode ===== */
+/* --- Spectate / Monitor Mode --- */
 .spectate-banner {
     display: flex;
     align-items: center;
@@ -1616,7 +1630,9 @@ body {
     color: var(--text);
 }
 
-/* ===== Modals ===== */
+/* ============================================================
+   区块 05 · 模态框与弹窗
+   ============================================================ */
 .modal-overlay {
     display: none;
     position: fixed; inset: 0;
@@ -1821,7 +1837,7 @@ body {
     color: var(--text);
 }
 
-/* ===== World Card Rating ===== */
+/* --- World Card Rating --- */
 .wc-rating {
     display: flex;
     align-items: center;
@@ -1851,7 +1867,7 @@ body {
 }
 .wc-rate-btn:hover { border-color: var(--gold); color: var(--gold); }
 
-/* ===== Rate Modal ===== */
+/* --- Rate Modal --- */
 .rate-my-section {
     background: var(--bg-panel);
     border: 1px solid var(--border);
@@ -1911,7 +1927,7 @@ body {
     border-left: 2px solid var(--border);
 }
 
-/* ===== World List Order Buttons ===== */
+/* --- World List Order Buttons --- */
 .wli-order {
     display: flex;
     flex-direction: column;
@@ -1960,7 +1976,7 @@ body {
     border-color: var(--accent); color: var(--accent);
 }
 
-/* ===== Sessions Bar ===== */
+/* --- Sessions Bar --- */
 .sessions-bar {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -2072,7 +2088,9 @@ body {
 }
 .sc-switch:hover { border-color: var(--gold); color: var(--gold); }
 
-/* ===== Admin Panel ===== */
+/* ============================================================
+   区块 06 · 管理员面板
+   ============================================================ */
 .admin-tabs {
     display: flex;
     gap: 4px;
@@ -2191,7 +2209,9 @@ body {
 .key-used { color: var(--text-dim); font-weight: 400; text-decoration: line-through; opacity: 0.6; }
 .key-unused { color: var(--text-dim); }
 
-/* ===== Loading Overlay ===== */
+/* ============================================================
+   区块 07 · 加载与提示
+   ============================================================ */
 .loading-overlay {
     display: none;
     position: fixed; inset: 0;
@@ -2254,7 +2274,7 @@ body {
     100% { width: 0%; margin-left: 100%; }
 }
 
-/* ===== Exit Confirm Modal ===== */
+/* --- Exit Confirm Modal --- */
 .exit-modal, .share-modal {
     max-width: 360px;
     text-align: center;
@@ -2331,7 +2351,7 @@ body {
     margin-bottom: 8px;
 }
 
-/* ===== Toast Notifications ===== */
+/* --- Toast Notifications --- */
 .toast-container {
     position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
     z-index: 9999; display: flex; flex-direction: column; gap: 8px;
@@ -2353,7 +2373,7 @@ body {
 .toast.warn { background: linear-gradient(135deg, #5c3a1a, #7a5a2a); border: 1px solid #9a7a3a; }
 .toast.error { background: linear-gradient(135deg, #5c1a1a, #7a2a2a); border: 1px solid #9a3a3a; }
 
-/* ===== Transition Enhancements ===== */
+/* --- Transition Enhancements --- */
 .story-box, .personal-panel, .right-panel .storyline-panel,
 .world-card, .admin-list-item, .session-card, .spectate-item {
     transition: all 0.2s ease;
@@ -2362,7 +2382,9 @@ body {
     border-color: var(--gold-dim);
 }
 
-/* ===== Responsive ===== */
+/* ============================================================
+   区块 08 · 响应式与杂项
+   ============================================================ */
 @media (max-width: 800px) {
     .game-main { flex-direction: column; }
     .personal-panel { width: 100%; min-width: 0; max-height: 180px; flex-direction: row; flex-wrap: wrap; flex-flow: row wrap; }
@@ -2381,7 +2403,9 @@ body {
     .stats-summary { grid-template-columns: 1fr 1fr; }
 }
 
-/* ===== Markdown Body Styles ===== */
+/* ============================================================
+   区块 09 · Markdown渲染
+   ============================================================ */
 .md-body {
     line-height: 1.8;
     word-wrap: break-word;
@@ -2572,3 +2596,5 @@ body {
     font-size: 15px;
     line-height: 1.9;
 }
+
+/* ===== END OF FILE ===== */

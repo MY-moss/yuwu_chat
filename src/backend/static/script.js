@@ -1,11 +1,19 @@
-// ===== State =====
+// ============================================================
+// 文件: script.js | 职责: 前端主逻辑 | 区块数: 18
+// ============================================================
+
+// ============================================================
+// 区块 01 · 全局状态与DOM引用
+// ============================================================
 let currentMode = 'chat';
 let rpgState = { sessionId: null, world: null, playerName: '', storyline: [] };
 let currentUser = null;
 let isShared = false;
 let rpgAbortController = null;
 
-// ===== Toast =====
+// ============================================================
+// 区块 02 · 工具函数与Loading
+// ============================================================
 function toast(msg, type) {
     const c = document.getElementById('toastContainer');
     if (!c) return;
@@ -17,13 +25,13 @@ function toast(msg, type) {
     setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, 3500);
 }
 
-// ===== Utils =====
+// --- Utils ---
 function escapeHtml(s) {
     if (s == null) return '';
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 }
 
-// ===== DOM Refs =====
+// --- DOM Refs ---
 const $ = id => document.getElementById(id);
 const chatBox = $('chatBox');
 const messageInput = $('messageInput');
@@ -39,7 +47,7 @@ const personalContent = $('personalContent');
 const gameWorldName = $('gameWorldName');
 const gamePlayerName = $('gamePlayerName');
 
-// ===== Loading Overlay =====
+// --- Loading Overlay ---
 const loadingOverlay = $('loadingOverlay');
 const loadingText = $('loadingText');
 const loadingSub = $('loadingSub');
@@ -72,7 +80,9 @@ function updateLoadingStatus(text) {
     if (loadingStatus) loadingStatus.textContent = text || '';
 }
 
-// ===== Auth =====
+// ============================================================
+// 区块 03 · 认证UI
+// ============================================================
 async function checkAuth() {
     try {
         const res = await fetch('/api/auth/me');
@@ -262,7 +272,9 @@ function showAuthError(msg) {
     $('authError').textContent = msg || '';
 }
 
-// ===== Models =====
+// ============================================================
+// 区块 04 · 模型与初始化
+// ============================================================
 async function populateModels() {
     const sel = $('modelSelect');
     if (!sel) return;
@@ -303,7 +315,7 @@ function getSelectedModel() {
     return $('modelSelect') ? $('modelSelect').value : 'mimo-v2.5-free';
 }
 
-// ===== Init =====
+// --- Init ---
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
     setupEventListeners();
@@ -466,7 +478,9 @@ async function fetchCsrfToken() {
 
 fetchCsrfToken();
 
-// ===== API Helpers =====
+// ============================================================
+// 区块 05 · API Helpers
+// ============================================================
 async function api(url, opts = {}) {
     const headers = { 'Content-Type': 'application/json' };
     if (csrfToken) {
@@ -486,7 +500,9 @@ async function api(url, opts = {}) {
     return data;
 }
 
-// ===== Chat =====
+// ============================================================
+// 区块 06 · 聊天UI
+// ============================================================
 async function loadAgents() {
     try {
         const data = await api('/api/agents');
@@ -632,7 +648,9 @@ function appendMessage(text, role, name) {
     return div;
 }
 
-// ===== Sessions =====
+// ============================================================
+// 区块 07 · 会话管理
+// ============================================================
 async function loadSessions() {
     try {
         const [sessions, activeData] = await Promise.all([
@@ -753,7 +771,9 @@ $('sessionsBarHeader').addEventListener('click', () => {
     $('sessionsToggle').classList.toggle('collapsed');
 });
 
-// ===== Worlds =====
+// ============================================================
+// 区块 08 · 世界与评分
+// ============================================================
 async function loadWorlds() {
     loadSessions();
     try {
@@ -795,7 +815,7 @@ function renderRatingStars(avg) {
     return html;
 }
 
-// ===== World Rating =====
+// --- World Rating ---
 window.openRateWorld = async function(e, worldId) {
     e.stopPropagation();
     const ratings = await api(`/api/rpg/worlds/${worldId}/ratings`).catch(() => []);
@@ -889,7 +909,9 @@ window.submitRating = async function(worldId) {
     loadWorlds();
 };
 
-// ===== RPG Game =====
+// ============================================================
+// 区块 09 · RPG游戏核心
+// ============================================================
 async function startGame(worldId) {
     let name = prompt('请输入你的角色名：', '旅人') || '旅人';
     name = name.trim().replace(/[<>"'&]/g, '');
@@ -1064,7 +1086,9 @@ async function actGame(choice) {
     }
 }
 
-// ===== Markdown Rendering =====
+// ============================================================
+// 区块 10 · Markdown渲染
+// ============================================================
 function renderMarkdown(text) {
     if (!text) return '';
     const raw = String(text);
@@ -1095,7 +1119,7 @@ function renderStory(text) {
     storyBox.scrollTop = 0;
 }
 
-// ===== Personal Panel Rendering =====
+// --- Personal Panel Rendering ---
 // Narrative section keys — these contain long text, NOT shown in sidebar
 const NARRATIVE_KEYS = new Set([
     '背景', '简介', '外貌', '外貌描述', '描述', '性格', '性格特点',
@@ -1279,7 +1303,9 @@ function renderChoices(storyText) {
     addCustomInput();
 }
 
-// ===== Dice Skill Check System =====
+// ============================================================
+// 区块 11 · 骰子技能检定
+// ============================================================
 // Extract attribute value from sections (search 属性, 状态, 技能)
 function getAttrValue(attrName) {
     const sections = rpgState.sections || {};
@@ -1403,7 +1429,9 @@ function addCustomInput() {
     choicesArea.appendChild(wrap);
 }
 
-// ===== Storyline =====
+// ============================================================
+// 区块 12 · 故事线与关系
+// ============================================================
 function renderStoryline() {
     const body = $('storylineBody');
     const sl = rpgState.storyline || [];
@@ -1508,7 +1536,9 @@ $('exitConfirmBtn').addEventListener('click', () => {
     if (shareBtn) shareBtn.style.display = 'none';
 });
 
-// ===== Agent Management =====
+// ============================================================
+// 区块 13 · Agent管理UI
+// ============================================================
 const manageBtn = $('manageBtn');
 const manageModal = $('manageModal');
 const modalClose = $('modalClose');
@@ -1609,7 +1639,9 @@ $('editorSave').addEventListener('click', async () => {
     loadAgents();
 });
 
-// ===== World Management =====
+// ============================================================
+// 区块 14 · 世界管理UI
+// ============================================================
 const manageWorldBtn = $('manageWorldBtn');
 const worldManageModal = $('worldManageModal');
 const worldManageClose = $('worldManageClose');
@@ -1804,7 +1836,9 @@ $('worldEditorSave').addEventListener('click', async () => {
     }
 });
 
-// ===== Admin Panel =====
+// ============================================================
+// 区块 15 · 管理员面板
+// ============================================================
 const adminBtn = $('adminBtn');
 const adminModal = $('adminModal');
 const adminClose = $('adminClose');
@@ -1979,7 +2013,7 @@ window.deleteAdminUser = async function(id) {
     loadAdminUsers();
 };
 
-// ===== Credit Keys (Admin) =====
+// --- Credit Keys (Admin) ---
 async function loadAdminKeys() {
     const keys = await api('/api/admin/credit-keys');
     $('adminKeysList').innerHTML = keys.map(k => `
@@ -2023,7 +2057,9 @@ window.deleteKey = async function(id) {
     loadAdminKeys();
 };
 
-// ===== Personal API Settings =====
+// ============================================================
+// 区块 16 · 个人API与用户模型
+// ============================================================
 const apiSettingsBtn = $('apiSettingBtn');
 const apiSettingsModal = $('apiSettingsModal');
 const apiSettingsClose = $('apiSettingsClose');
@@ -2072,7 +2108,7 @@ window.fillNewModelApiUrl = function() {
     }
 }
 
-// ===== User Models Management =====
+// --- User Models Management ---
 async function loadUserModels() {
     try {
         const res = await fetch('/api/auth/models');
@@ -2228,7 +2264,9 @@ function updateFreeModeDisplay(hasApi) {
     if (display) display.style.display = hasApi ? 'inline' : 'none';
 }
 
-// ===== Redeem (User) =====
+// ============================================================
+// 区块 17 · 兑换与投稿
+// ============================================================
 const redeemBtn = $('redeemBtn');
 const redeemModal = $('redeemModal');
 const redeemClose = $('redeemClose');
@@ -2268,7 +2306,7 @@ $('redeemCode').addEventListener('keydown', e => {
     if (e.key === 'Enter') $('redeemSubmitBtn').click();
 });
 
-// ===== World Submission =====
+// --- World Submission ---
 const submitWorldBtn = $('submitWorldBtn');
 const submitWorldModal = $('submitWorldModal');
 const submitWorldClose = $('submitWorldClose');
@@ -2322,7 +2360,7 @@ $('addMySubBtn').addEventListener('click', () => {
     submitWorldBtn.click();
 });
 
-// ===== Admin Stats =====
+// --- Admin Stats ---
 async function loadAdminStats() {
     try {
         const stats = await api('/api/admin/stats');
@@ -2352,7 +2390,7 @@ async function loadAdminStats() {
     } catch { $('adminStatsContent').innerHTML = '<div class="status-empty">加载失败</div>'; }
 }
 
-// ===== Admin Submissions =====
+// --- Admin Submissions ---
 async function loadAdminSubmissions() {
     const subs = await api('/api/rpg/worlds/submissions');
     $('adminSubmissionsList').innerHTML = subs.length === 0
@@ -2388,7 +2426,7 @@ window.rejectSub = async function(id) {
     loadAdminSubmissions();
 };
 
-// ===== Admin: All Sessions =====
+// --- Admin: All Sessions ---
 async function loadAdminAllSessions() {
     try {
         const sessions = await api('/api/admin/all-sessions');
@@ -2438,7 +2476,9 @@ window.adminWatchSession = function(sid) {
     spectateTimer = setInterval(spectatePoll, 2000);
 };
 
-// ===== Share =====
+// ============================================================
+// 区块 18 · 分享与观战
+// ============================================================
 const shareBtn = $('shareBtn');
 shareBtn.addEventListener('click', async () => {
     if (!rpgState.sessionId) return;
@@ -2491,7 +2531,7 @@ $('exitConfirmModal').addEventListener('click', e => {
     }
 });
 
-// ===== Spectate (Watch others play) =====
+// --- Spectate (Watch others play) ---
 let spectateTimer = null, spectateToken = '';
 let spectateMode = 'shared'; // 'shared' or 'admin'
 
@@ -2610,3 +2650,5 @@ document.addEventListener('visibilitychange', () => {
         if (spectateRefreshTimer) { clearInterval(spectateRefreshTimer); spectateRefreshTimer = null; }
     }
 });
+
+// ===== END OF FILE =====
