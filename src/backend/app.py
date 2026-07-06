@@ -986,7 +986,8 @@ def reset_admin_password():
 @login_required
 def logout():
     logout_user()
-    return jsonify({"message": "退出成功"})
+    session['_csrf_token'] = secrets.token_hex(16)
+    return jsonify({"message": "退出成功", "csrf_token": session['_csrf_token']})
 
 
 @app.route("/api/auth/change-password", methods=["POST"])
@@ -1014,8 +1015,9 @@ def change_password():
     db.session.commit()
     
     logout_user()
+    session['_csrf_token'] = secrets.token_hex(16)
     
-    return jsonify({"message": "密码修改成功，请重新登录"})
+    return jsonify({"message": "密码修改成功，请重新登录", "csrf_token": session['_csrf_token']})
 
 
 @app.route("/api/auth/me")
@@ -2324,7 +2326,9 @@ def rpg_act_stream():
     api_key, api_url = get_effective_api(model)
     credits_per_1k = get_model_price(model)
 
-    commit_data = {}
+    user_id = current_user.id
+    username = current_user.username
+    user_credits = current_user.credits
 
     def generate():
         import json as _json
@@ -2413,11 +2417,16 @@ def rpg_act_stream():
         personal = using_personal_api()
         total_tokens = estimate_tokens(full_text)
         cost = calc_token_cost(total_tokens, credits_per_1k) if (not personal and credits_per_1k > 0) else 0
-        if not personal and credits_per_1k > 0 and not deduct_credits(current_user, cost):
+
+        db_user = User.query.get(user_id)
+        if not db_user:
+            yield f"data: {_json.dumps({'type':'error','text':'用户不存在'})}\n\n"
+            return
+
+        if not personal and credits_per_1k > 0 and not deduct_credits(db_user, cost):
             yield f"data: {_json.dumps({'type':'error','text':f'积分不足（需要 {cost} 积分）'})}\n\n"
             return
-        if not personal:
-            commit_data["total_tokens"] = total_tokens
+
         rmap = _parse_relationships(sections.get("关系", ""))
         sections["关系_map"] = rmap
 
@@ -2430,13 +2439,14 @@ def rpg_act_stream():
         sess.setdefault("state_log", []).append({"round": rnd, "sections": dict(sections)})
         sess["storyline"].append({"round": rnd, "choice": choice, "story": story[:150], "sections": dict(sections)})
         save_sessions()
-        log_usage(current_user.id, current_user.username, model, total_tokens, cost, "rpg_act_stream")
-        yield f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':cost,'credits_left':current_user.credits,'free':personal})}\n\n"
+        log_usage(user_id, username, model, total_tokens, cost, "rpg_act_stream")
+
+        db_user = User.query.get(user_id)
+        final_credits = db_user.credits if db_user else user_credits
+
+        yield f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':cost,'credits_left':final_credits,'free':personal})}\n\n"
 
     response = Response(stream_with_context(generate()), mimetype="text/event-stream")
-    if commit_data.get("total_tokens"):
-        current_user.total_tokens = (current_user.total_tokens or 0) + commit_data["total_tokens"]
-        db.session.commit()
     return response
 
 
@@ -2610,6 +2620,39 @@ def delete_session(session_id):
     rpg_sessions.pop(session_id, None)
     save_sessions()
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/rpg/roll", methods=["POST"])
+@login_required
+def roll_dice():
+    data = request.json
+    session_id = data.get("session_id")
+    difficulty = data.get("difficulty", 10)
+    modifier = data.get("modifier", 0)
+    attribute = data.get("attribute", "")
+
+    if not session_id:
+        return jsonify({"error": "缺少会话ID"}), 400
+
+    sess = rpg_sessions.get(session_id)
+    if not sess:
+        return jsonify({"error": "会话不存在"}), 404
+    if sess.get("user_id") != current_user.id:
+        return jsonify({"error": "无权操作"}), 403
+
+    import random
+    roll = random.randint(1, 20)
+    total = roll + modifier
+    success = total >= difficulty
+
+    return jsonify({
+        "roll": roll,
+        "total": total,
+        "difficulty": difficulty,
+        "modifier": modifier,
+        "attribute": attribute,
+        "success": success
+    })
 
 
 # ===== Edit & Resubmit Submission =====

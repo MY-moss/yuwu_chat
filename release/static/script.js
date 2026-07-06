@@ -349,7 +349,10 @@ async function register() {
 
 async function logout() {
     try {
-        await api('/api/auth/logout');
+        const resp = await api('/api/auth/logout');
+        if (resp && resp.csrf_token) {
+            csrfToken = resp.csrf_token;
+        }
     } catch (e) {
         console.error('[ERROR] logout:', e);
         toast('退出登录失败', 'warn');
@@ -450,6 +453,9 @@ async function changePassword() {
             msgEl.textContent = data.error;
             msgEl.style.color = 'var(--accent)';
         } else {
+            if (data.csrf_token) {
+                csrfToken = data.csrf_token;
+            }
             msgEl.textContent = '密码修改成功！';
             msgEl.style.color = '#4CAF50';
             $('oldPassword').value = '';
@@ -1752,7 +1758,7 @@ function calculateRealDifficulty(baseDiff, sections) {
 let skillCheckTimer = null;
 let actGameStatusTimeout = null;
 
-function doSkillCheck(baseDifficulty, realDifficulty, modifier, attribute) {
+async function doSkillCheck(baseDifficulty, realDifficulty, modifier, attribute) {
     const btn = document.querySelector('.judge-roll-btn');
     if (btn) btn.disabled = true;
     const resultEl = document.getElementById('judgeResult');
@@ -1762,11 +1768,27 @@ function doSkillCheck(baseDifficulty, realDifficulty, modifier, attribute) {
     resultEl.innerHTML = '<span class="judge-rolling">🎲 投掷中...</span>';
 
     if (skillCheckTimer) clearTimeout(skillCheckTimer);
-    skillCheckTimer = setTimeout(() => {
-        skillCheckTimer = null;
-        const roll = Math.floor(Math.random() * 20) + 1;
-        const total = roll + modifier;
-        const success = total >= realDifficulty;
+
+    try {
+        const data = await api('/api/rpg/roll', {
+            method: 'POST',
+            body: JSON.stringify({
+                session_id: rpgState.sessionId,
+                difficulty: realDifficulty,
+                modifier: modifier,
+                attribute: attribute
+            })
+        });
+
+        if (data.error) {
+            resultEl.innerHTML = '❌ ' + escapeHtml(data.error);
+            if (btn) btn.disabled = false;
+            return;
+        }
+
+        const roll = data.roll;
+        const total = data.total;
+        const success = data.success;
 
         let breakdown = '📊 检定明细<br>';
         breakdown += '▸ d20 掷出: ' + roll + '<br>';
@@ -1792,7 +1814,12 @@ function doSkillCheck(baseDifficulty, realDifficulty, modifier, attribute) {
         }
 
         actGame('我进行' + attribute + '检定：掷出d20=' + roll + '（修正' + (modifier >= 0 ? '+' : '') + modifier + '=' + total + '，难度' + realDifficulty + '），' + resultText);
-    }, 500);
+    }
+    catch (e) {
+        console.error('[ERROR] doSkillCheck:', e);
+        resultEl.innerHTML = '❌ 掷骰失败，请重试';
+        if (btn) btn.disabled = false;
+    }
 }
 
 function addCustomInput() {

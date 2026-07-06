@@ -128,7 +128,6 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = False  # Set True in production with HTTPS
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
-app.config['SESSION_PROTECTION'] = 'strong'
 
 def escape_html(s):
     if s is None:
@@ -153,8 +152,6 @@ def validate_password(password):
         return False, "密码必须包含至少一个大写字母"
     if not re.search(r'[0-9]', password):
         return False, "密码必须包含至少一个数字"
-    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-        return False, "密码必须包含至少一个特殊字符"
     return True, ""
 
 @app.before_request
@@ -250,7 +247,7 @@ def load_version():
     ]
     for version_file in paths:
         try:
-            with open(version_file, "r", encoding="utf-8") as f:
+            with open(version_file, "r", encoding="utf-8-sig") as f:
                 v = json.load(f)
                 build = v.get("build", 0)
                 if build > 0:
@@ -280,7 +277,7 @@ VERSION = load_version()
 CHANGELOG = load_changelog()
 
 # 强制所有跑团输出格式 — 内容来自 rpg_format.txt
-MANDATORY_RPG_FORMAT = open(os.path.join(BASE_PATH, "rpg_format.txt"), encoding="utf-8").read()
+MANDATORY_RPG_FORMAT = open(os.path.join(BASE_PATH, "rpg_format.txt"), "r", encoding="utf-8").read()
 
 histories = {}
 rpg_sessions = {}
@@ -319,8 +316,8 @@ _LOGIN_RATE_LIMIT = 5
 _LOGIN_RATE_WINDOW = 60
 _register_attempts = {}
 _register_lock = threading.Lock()
-_REGISTER_RATE_LIMIT = 3
-_REGISTER_RATE_WINDOW = 3600
+_REGISTER_RATE_LIMIT = 5
+_REGISTER_RATE_WINDOW = 60
 _redeem_attempts = {}
 _redeem_lock = threading.Lock()
 _REDEEM_RATE_LIMIT = 5
@@ -761,7 +758,7 @@ def deduct_credits(user, amount, max_retries=3):
         current_ver = user.token_version or 1
         result = db.session.execute(
             db.text(
-                "UPDATE user SET credits = credits - :amt, token_version = token_version + 1 "
+                "UPDATE user SET credits = credits - :amt "
                 "WHERE id = :uid AND credits >= :amt AND token_version = :ver"
             ),
             {"amt": amount, "uid": user.id, "ver": current_ver}
@@ -817,8 +814,8 @@ def get_effective_api(model_id=None, user=None):
             from flask_login import current_user
             if current_user and current_user.is_authenticated:
                 user = current_user
-        except Exception as e:
-                                    logger.error(f"SSE chunk parse error: {e}")
+        except Exception:
+            pass
     if model_id and user:
         user_model = UserModelConfig.query.filter_by(user_id=user.id, model_id=model_id).first()
         if user_model and user_model.api_base and user_model.api_key:
@@ -860,16 +857,6 @@ def register():
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
 
-    client_ip = request.remote_addr
-    with _register_lock:
-        now = time.time()
-        reg_attempts = _register_attempts.get(client_ip, [])
-        reg_attempts = [t for t in reg_attempts if now - t < _REGISTER_RATE_WINDOW]
-        if len(reg_attempts) >= _REGISTER_RATE_LIMIT:
-            return jsonify({"error": "注册过于频繁，请稍后再试"}), 429
-        reg_attempts.append(now)
-        _register_attempts[client_ip] = reg_attempts
-
     if not username or not password:
         return jsonify({"error": "用户名和密码不能为空"}), 400
     if len(username) < 2 or len(username) > 32:
@@ -881,6 +868,17 @@ def register():
     valid_pwd, pwd_msg = validate_password(password)
     if not valid_pwd:
         return jsonify({"error": pwd_msg}), 400
+
+    client_ip = request.remote_addr
+    with _register_lock:
+        now = time.time()
+        reg_attempts = _register_attempts.get(client_ip, [])
+        reg_attempts = [t for t in reg_attempts if now - t < _REGISTER_RATE_WINDOW]
+        if len(reg_attempts) >= _REGISTER_RATE_LIMIT:
+            return jsonify({"error": "注册过于频繁，请稍后再试"}), 429
+        reg_attempts.append(now)
+        _register_attempts[client_ip] = reg_attempts
+
     user = User(username=username, credits=100)
     user.set_password(password)
     db.session.add(user)
@@ -894,8 +892,42 @@ def register():
         return jsonify({"error": "注册失败，请重试"}), 500
 
     login_user(user)
+    session.permanent = True
     session['_user_token_version'] = user.token_version or 1
     return jsonify({"message": "注册成功", "user": user.to_dict()}), 201
+
+
+@app.route("/api/user/usage", methods=["GET"])
+@login_required
+def user_usage():
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+    per_page = min(per_page, 100)
+    with _usage_log_lock:
+        if not os.path.exists(USAGE_LOG_FILE):
+            return jsonify({"logs": [], "total": 0, "page": page, "pages": 0})
+        with open(USAGE_LOG_FILE, "r", encoding="utf-8") as f:
+            try:
+                logs = json.load(f)
+                if isinstance(logs, dict):
+                    logs = list(logs.values())
+                elif not isinstance(logs, list):
+                    logs = []
+            except Exception:
+                logs = []
+    my_logs = [l for l in logs if l.get("user_id") == current_user.id]
+    my_logs.sort(key=lambda x: x.get("time", ""), reverse=True)
+    total = len(my_logs)
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, pages)
+    start = (page - 1) * per_page
+    end = start + per_page
+    return jsonify({
+        "logs": my_logs[start:end],
+        "total": total,
+        "page": page,
+        "pages": pages
+    })
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -920,17 +952,14 @@ def login():
         return jsonify({"error": "用户名或密码错误"}), 401
 
     login_user(user)
-    # Regenerate session to prevent fixation
-    session_data = {k: v for k, v in session.items() if k != '_csrf_token'}
-    session.clear()
+    session.permanent = True
     session['_user_token_version'] = user.token_version or 1
-    session.update(session_data)
     session['_csrf_token'] = secrets.token_hex(16)
 
     with _login_lock:
         _login_attempts.pop(client_ip, None)
 
-    return jsonify({"message": "登录成功", "user": user.to_dict(), "password_reset_required": user.password_reset_required or False})
+    return jsonify({"message": "登录成功", "user": user.to_dict(), "password_reset_required": user.password_reset_required or False, "csrf_token": session['_csrf_token']})
 
 
 @app.route("/api/auth/reset-admin-password", methods=["POST"])
@@ -957,7 +986,8 @@ def reset_admin_password():
 @login_required
 def logout():
     logout_user()
-    return jsonify({"message": "退出成功"})
+    session['_csrf_token'] = secrets.token_hex(16)
+    return jsonify({"message": "退出成功", "csrf_token": session['_csrf_token']})
 
 
 @app.route("/api/auth/change-password", methods=["POST"])
@@ -985,8 +1015,9 @@ def change_password():
     db.session.commit()
     
     logout_user()
+    session['_csrf_token'] = secrets.token_hex(16)
     
-    return jsonify({"message": "密码修改成功，请重新登录"})
+    return jsonify({"message": "密码修改成功，请重新登录", "csrf_token": session['_csrf_token']})
 
 
 @app.route("/api/auth/me")
@@ -1556,7 +1587,7 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=1200)
 def parse_rpg_reply(text):
     import re
     text = text.strip()
-    marker_re = r'[【（\[\(]([^】）\]\)]+)[】）\]\)]'
+    marker_re = r'【([^】]+)】'
     matches = list(re.finditer(marker_re, text))
     if not matches:
         return text, {}
@@ -1669,6 +1700,12 @@ def _parse_relationships(rels_str):
         for part in rels_str.replace("【", "").replace("】", "").split():
             if ":" in part:
                 k, v = part.split(":", 1)
+                rmap[k.strip()] = v.strip()
+    if not rmap and rels_str:
+        for line in rels_str.replace("\r", "").split("\n"):
+            line = line.strip()
+            if ":" in line and not line.startswith("http"):
+                k, v = line.split(":", 1)
                 rmap[k.strip()] = v.strip()
     return rmap
 
@@ -2283,13 +2320,15 @@ def rpg_act_stream():
     ctx = f"我选择：{choice}"
     if prev:
         ctx += "\n\n当前数据：" + "; ".join(f"【{k}】{v}" for k, v in prev.items() if not isinstance(v, dict))
-    ctx += "\n\n请继续故事并输出更新后的所有数据段"
+    ctx += "\n\n请继续故事，并在末尾输出更新后的所有数据段：【状态】【属性】【关系】【背包】【技能】等"
     sess["model"] = model
 
     api_key, api_url = get_effective_api(model)
     credits_per_1k = get_model_price(model)
 
-    commit_data = {}
+    user_id = current_user.id
+    username = current_user.username
+    user_credits = current_user.credits
 
     def generate():
         import json as _json
@@ -2318,7 +2357,8 @@ def rpg_act_stream():
                     with requests.post(api_url, headers=headers, json=body, timeout=60) as resp_retry:
                         if resp_retry.status_code == 200:
                             data = resp_retry.json()
-                            full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            choices = data.get("choices", [])
+                            full_text = choices[0].get("message", {}).get("content", "") if choices else ""
                             for ch in full_text:
                                 yield f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"
                             import time; time.sleep(0.02)
@@ -2338,7 +2378,8 @@ def rpg_act_stream():
                         raw = first + b"".join(list(it))
                         try:
                             data = _json.loads(raw.decode("utf-8"))
-                            full_text = data.get("choices", [{}])[0].get("message", {}).get("content", full_text)
+                            choices = data.get("choices", [])
+                            full_text = choices[0].get("message", {}).get("content", full_text) if choices else full_text
                         except Exception as e:
                             full_text = raw.decode("utf-8", errors="replace")
                     else:
@@ -2350,12 +2391,13 @@ def rpg_act_stream():
                                 if chunk.strip() == "[DONE]": break
                                 try:
                                     d = _json.loads(chunk)
-                                    delta = d.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    choices = d.get("choices", [])
+                                    delta = choices[0].get("delta", {}).get("content", "") if choices else ""
                                     if delta:
                                         full_text += delta
                                         yield f"data: {_json.dumps({'type':'chunk','text':delta})}\n\n"
-                                except Exception as e:
-                                    logger.error(f"SSE chunk parse error: {e}")
+                                except Exception:
+                                    pass
         except Exception as e:
             logger.error(f"rpg_act_stream: {e}")
             yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
@@ -2375,11 +2417,16 @@ def rpg_act_stream():
         personal = using_personal_api()
         total_tokens = estimate_tokens(full_text)
         cost = calc_token_cost(total_tokens, credits_per_1k) if (not personal and credits_per_1k > 0) else 0
-        if not personal and credits_per_1k > 0 and not deduct_credits(current_user, cost):
+
+        db_user = User.query.get(user_id)
+        if not db_user:
+            yield f"data: {_json.dumps({'type':'error','text':'用户不存在'})}\n\n"
+            return
+
+        if not personal and credits_per_1k > 0 and not deduct_credits(db_user, cost):
             yield f"data: {_json.dumps({'type':'error','text':f'积分不足（需要 {cost} 积分）'})}\n\n"
             return
-        if not personal:
-            commit_data["total_tokens"] = total_tokens
+
         rmap = _parse_relationships(sections.get("关系", ""))
         sections["关系_map"] = rmap
 
@@ -2392,13 +2439,14 @@ def rpg_act_stream():
         sess.setdefault("state_log", []).append({"round": rnd, "sections": dict(sections)})
         sess["storyline"].append({"round": rnd, "choice": choice, "story": story[:150], "sections": dict(sections)})
         save_sessions()
-        log_usage(current_user.id, current_user.username, model, total_tokens, cost, "rpg_act_stream")
-        yield f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':cost,'credits_left':current_user.credits,'free':personal})}\n\n"
+        log_usage(user_id, username, model, total_tokens, cost, "rpg_act_stream")
+
+        db_user = User.query.get(user_id)
+        final_credits = db_user.credits if db_user else user_credits
+
+        yield f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':cost,'credits_left':final_credits,'free':personal})}\n\n"
 
     response = Response(stream_with_context(generate()), mimetype="text/event-stream")
-    if commit_data.get("total_tokens"):
-        current_user.total_tokens = (current_user.total_tokens or 0) + commit_data["total_tokens"]
-        db.session.commit()
     return response
 
 
@@ -2572,6 +2620,39 @@ def delete_session(session_id):
     rpg_sessions.pop(session_id, None)
     save_sessions()
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/rpg/roll", methods=["POST"])
+@login_required
+def roll_dice():
+    data = request.json
+    session_id = data.get("session_id")
+    difficulty = data.get("difficulty", 10)
+    modifier = data.get("modifier", 0)
+    attribute = data.get("attribute", "")
+
+    if not session_id:
+        return jsonify({"error": "缺少会话ID"}), 400
+
+    sess = rpg_sessions.get(session_id)
+    if not sess:
+        return jsonify({"error": "会话不存在"}), 404
+    if sess.get("user_id") != current_user.id:
+        return jsonify({"error": "无权操作"}), 403
+
+    import random
+    roll = random.randint(1, 20)
+    total = roll + modifier
+    success = total >= difficulty
+
+    return jsonify({
+        "roll": roll,
+        "total": total,
+        "difficulty": difficulty,
+        "modifier": modifier,
+        "attribute": attribute,
+        "success": success
+    })
 
 
 # ===== Edit & Resubmit Submission =====
