@@ -7,11 +7,28 @@ Write-Host "  #                                  #" -ForegroundColor DarkYellow
 Write-Host "  ####################################`n" -ForegroundColor DarkYellow
 
 $env:PYTHONIOENCODING = "utf-8"
-$env:AI_API_KEY = "public"
-$env:AI_API_URL = "https://opencode.ai/zen/v1/chat/completions"
 
-Write-Host "  AI: opencode.ai/zen (free)" -ForegroundColor Cyan
-Write-Host "  Key: public" -ForegroundColor Cyan
+$envFile = Join-Path $PSScriptRoot ".env"
+if (Test-Path $envFile) {
+    Get-Content $envFile | Where-Object { $_ -match '^[^#].*=' } | ForEach-Object {
+        $parts = $_.Split('=', 2)
+        $key = $parts[0].Trim()
+        $value = $parts[1].Trim('"', "'")
+        if ($key -eq "AI_API_KEY" -or $key -eq "AI_API_URL" -or $key -eq "SECRET_KEY") {
+            [Environment]::SetEnvironmentVariable($key, $value, "Process")
+        }
+    }
+}
+
+if (-not $env:AI_API_KEY) {
+    $env:AI_API_KEY = "public"
+    $env:AI_API_URL = "https://opencode.ai/zen/v1/chat/completions"
+    Write-Host "  AI: opencode.ai/zen (free)" -ForegroundColor Cyan
+    Write-Host "  Key: public" -ForegroundColor Cyan
+} else {
+    Write-Host "  AI: configured from .env" -ForegroundColor Cyan
+    Write-Host "  Key: ********" -ForegroundColor Cyan
+}
 Write-Host ""
 
 Start-Sleep -Seconds 1
@@ -25,9 +42,6 @@ if (Test-Path $exePath) {
     if (Test-Path $tavernExePath) {
         Start-Process "http://127.0.0.1:9000"
         & $tavernExePath
-    } else {
-        Write-Host "  ❌ 未找到可执行文件" -ForegroundColor Red
-        Write-Host "  请确保 tavern.exe 或 云雾酒馆.exe 存在于当前目录" -ForegroundColor Yellow
     }
 }
 

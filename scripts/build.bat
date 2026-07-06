@@ -13,6 +13,25 @@ set "DIST_DIR=dist"
 set "OUTPUT_DIR=release"
 set "VERSION_FILE=src/backend/version.json"
 
+echo [0/6] Checking Python environment...
+python --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Python not found in PATH
+    echo        Please install Python 3.9+ and add to PATH
+    pause
+    exit /b 1
+)
+
+for /f "tokens=2" %%a in ('python --version 2^>^&1') do set PYTHON_VER=%%a
+echo   Python: %PYTHON_VER%
+
+pip --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: pip not found
+    pause
+    exit /b 1
+)
+
 if "%1"=="major" goto BUMP_MAJOR
 if "%1"=="minor" goto BUMP_MINOR
 if "%1"=="patch" goto BUMP_PATCH
@@ -43,13 +62,13 @@ if %errorlevel% neq 0 (
 :SHOW_VERSION
 python scripts/bump_version.py show
 
-echo [1/5] Cleaning old builds...
+echo [1/6] Cleaning old builds...
 if exist "%BUILD_DIR%" rd /s /q "%BUILD_DIR%"
 if exist "%DIST_DIR%" rd /s /q "%DIST_DIR%"
 if exist "%OUTPUT_DIR%" rd /s /q "%OUTPUT_DIR%"
 
-echo [2/5] Installing dependencies...
-pip install -r src/backend/requirements.txt >nul 2>&1
+echo [2/6] Installing dependencies...
+pip install -r src/backend/requirements.txt
 if %errorlevel% neq 0 (
     echo ERROR: Dependency install failed
     pause
@@ -57,7 +76,7 @@ if %errorlevel% neq 0 (
 )
 echo   Dependencies installed
 
-echo [3/5] Building with PyInstaller...
+echo [3/6] Building with PyInstaller...
 pyinstaller ^
     --name "tavern" ^
     --onefile ^
@@ -93,7 +112,7 @@ if %errorlevel% neq 0 (
 )
 echo   PyInstaller build completed
 
-echo [4/5] Organizing release files...
+echo [4/6] Organizing release files...
 mkdir "%OUTPUT_DIR%"
 copy "%DIST_DIR%\tavern.exe" "%OUTPUT_DIR%\tavern.exe" >nul
 copy "scripts\release_start.bat" "%OUTPUT_DIR%\start.bat" >nul
@@ -121,7 +140,7 @@ xcopy "src/backend\templates" "%OUTPUT_DIR%\templates\" /E /Y >nul
 
 echo   Files organized
 
-echo [5/5] Cleaning temp files...
+echo [5/6] Cleaning temp files...
 if exist "%BUILD_DIR%" rd /s /q "%BUILD_DIR%"
 if exist "%DIST_DIR%" rd /s /q "%DIST_DIR%"
 if exist "tavern.spec" del "tavern.spec"
