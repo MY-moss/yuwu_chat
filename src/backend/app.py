@@ -9,17 +9,23 @@ import os
 import sys
 import json
 import uuid
+import collections
 import threading
 import time
+import re
+import logging
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
+import ipaddress
 import requests
 from flask import Flask, render_template, request, jsonify, session, Response, stream_with_context
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.pool import NullPool
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
+import random
 
 def get_base_path():
     if hasattr(sys, '_MEIPASS'):
@@ -50,6 +56,30 @@ def is_safe_url(url):
                     return False, '不允许访问私有网络地址'
             else:
                 return False, '不允许访问私有网络地址'
+        # Check for encoded IP addresses (decimal, hex, octal, mixed)
+        try:
+            decoded_ip = None
+            if hostname.isdigit() or (len(hostname) > 2 and hostname.startswith(('0x', '0X'))):
+                decoded_ip = str(ipaddress.IPv4Address(int(hostname, 0)))
+            elif '.' in hostname:
+                parts = hostname.split('.')
+                if len(parts) == 4:
+                    octets = []
+                    for p in parts:
+                        if p.startswith(('0x', '0X')):
+                            octets.append(int(p, 16))
+                        elif p.startswith('0') and len(p) > 1:
+                            octets.append(int(p, 8))
+                        else:
+                            octets.append(int(p))
+                    if all(0 <= o <= 255 for o in octets):
+                        decoded_ip = '.'.join(str(o) for o in octets)
+            if decoded_ip:
+                addr = ipaddress.ip_address(decoded_ip)
+                if addr.is_private or addr.is_loopback or addr.is_link_local:
+                    return False, '不允许访问私有或本地地址'
+        except (ValueError, TypeError):
+            pass
         return True, ''
     except Exception as e:
         return False, 'URL 解析失败'
@@ -61,35 +91,88 @@ app = Flask(__name__,
             template_folder=os.path.join(BASE_PATH, 'templates'))
 _secret_key = os.getenv("SECRET_KEY", "")
 if not _secret_key or _secret_key == "GENERATE_RANDOM_KEY_IN_PRODUCTION" or _secret_key == "tavern-secret-key-change-in-production":
-    app.secret_key = secrets.token_hex(32)
+    _key_file = os.path.join(os.path.dirname(__file__), '.secret_key')
+    try:
+        with open(_key_file, 'r') as f:
+            app.secret_key = f.read().strip()
+        if not app.secret_key:
+            raise ValueError("empty key file")
+    except (FileNotFoundError, ValueError):
+        app.secret_key = secrets.token_hex(32)
+        with open(_key_file, 'w') as f:
+            f.write(app.secret_key)
 else:
     app.secret_key = _secret_key
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(BASE_PATH, "instance", "tavern.db")}'
+# NOTE: SQLite DB is in instance/tavern.db under the web root. In production, move the DB file
+# outside the web root (e.g., /var/data/) to prevent direct download via the web server.
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'poolclass': NullPool,
+    'connect_args': {'timeout': 30}
+}
 app.config['TEMPLATES_AUTO_RELOAD'] = app.debug
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(os.path.join(BASE_PATH, 'app.log'), encoding='utf-8')
+    ]
+)
+logger = logging.getLogger(__name__)
 app.config['JSON_AS_ASCII'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = False  # Set True in production with HTTPS
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
+app.config['SESSION_PROTECTION'] = 'strong'
 
 def escape_html(s):
     if s is None:
         return ''
     return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
 
+def safe_commit():
+    try:
+        db.session.commit()
+        return True
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Database commit failed: {e}")
+        return False
+
+def validate_password(password):
+    if len(password) < 8:
+        return False, "密码长度至少8位"
+    if not re.search(r'[a-z]', password):
+        return False, "密码必须包含至少一个小写字母"
+    if not re.search(r'[A-Z]', password):
+        return False, "密码必须包含至少一个大写字母"
+    if not re.search(r'[0-9]', password):
+        return False, "密码必须包含至少一个数字"
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        return False, "密码必须包含至少一个特殊字符"
+    return True, ""
+
 @app.before_request
-def csrf_protect():
-    if request.method in ['POST', 'PUT', 'DELETE']:
-        if request.path in ['/api/auth/login', '/api/auth/register']:
-            pass
-        elif request.path.startswith('/api/auth/models'):
-            pass
-        else:
-            csrf_token = request.headers.get('X-CSRF-Token', '')
-            session_token = session.get('_csrf_token', '')
-            if csrf_token != session_token:
-                return jsonify({"error": "CSRF token invalid"}), 403
+def protect_db_and_csrf():
+    # SEC-02: Block direct database file access
+    if request.path.rstrip("/").endswith(".db"):
+        return jsonify({"error": "Access denied"}), 403
+
     if '_csrf_token' not in session:
         session['_csrf_token'] = secrets.token_hex(16)
+    if request.method not in ['POST', 'PUT', 'DELETE']:
+        return
+    if request.path in ['/api/auth/login', '/api/auth/register']:
+        return
+    csrf_token = request.headers.get('X-CSRF-Token', '')
+    session_token = session.get('_csrf_token', '')
+    if csrf_token != session_token:
+        return jsonify({"error": "CSRF token invalid"}), 403
 
 @app.route('/api/csrf-token')
 def get_csrf_token():
@@ -106,6 +189,15 @@ def add_no_cache_header(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' cdn.jsdelivr.net 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "font-src 'self'; "
+        "frame-ancestors 'none'"
+    )
     return response
 
 db = SQLAlchemy(app)
@@ -138,6 +230,18 @@ def atomic_json_dump(data, file_path, **kwargs):
             pass
         raise
 
+
+def atomic_json_load(file_path, default=None):
+    if not os.path.exists(file_path):
+        return default
+    with open(file_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        logger.warning(f"atomic_json_load: invalid JSON in {file_path}")
+        return default
+
 def load_version():
     paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "version.json"),
@@ -153,7 +257,7 @@ def load_version():
                     return f"v{v['major']}.{v['minor']}.{v['patch']}.{build}"
                 return f"v{v['major']}.{v['minor']}.{v['patch']}"
         except Exception as e:
-            print(f"[ERROR]: {e}", flush=True)
+            logger.error(f"load_version failed: {e}")
             continue
     return "v1.0.0"
 
@@ -168,33 +272,15 @@ def load_changelog():
             with open(changelog_file, "r", encoding="utf-8") as f:
                 return json.load(f).get("history", [])
         except Exception as e:
-            print(f"[ERROR]: {e}", flush=True)
+            logger.error(f"load_changelog failed: {e}")
             continue
     return []
 
 VERSION = load_version()
 CHANGELOG = load_changelog()
 
-# 强制所有跑团输出格式 — 无论世界书提示词是否包含
-MANDATORY_RPG_FORMAT = """
-【强制格式】
-1. 先输出故事段落，再输出数据段
-2. 数据段如下（每次必须包含【状态】和【事件】，其他可选）：
-【状态】HP 精力 金钱等
-【属性】力量 敏捷 智力 魅力 体质
-【背包】物品清单
-【技能】技能与等级
-【情绪】当前情绪
-【关系】NPC/势力:好感度
-【事件】当前关键事件
-3. 数据段完毕后，在末尾提供3-5个选项：
-【1】选项文字
-【2】选项文字
-【3】选项文字
-【4】选项文字
-4. 有挑战时额外输出【判定】难度:X 属性:X 说明:X
-5. 数值随故事合理变化
-"""
+# 强制所有跑团输出格式 — 内容来自 rpg_format.txt
+MANDATORY_RPG_FORMAT = (BASE_PATH / "rpg_format.txt").read_text(encoding="utf-8")
 
 histories = {}
 rpg_sessions = {}
@@ -214,7 +300,7 @@ def _cached_json_load(file_path, default=None):
         _json_cache_mtime[file_path] = mtime
         return data
     except Exception as e:
-        print(f"[ERROR] _cached_json_load failed for {file_path}: {e}", flush=True)
+        logger.error(f"_cached_json_load failed for {file_path}: {e}")
         return default
 
 def _invalidate_json_cache(file_path):
@@ -231,12 +317,31 @@ _login_attempts = {}
 _login_lock = threading.Lock()
 _LOGIN_RATE_LIMIT = 5
 _LOGIN_RATE_WINDOW = 60
+_register_attempts = {}
+_register_lock = threading.Lock()
+_REGISTER_RATE_LIMIT = 3
+_REGISTER_RATE_WINDOW = 3600
+_redeem_attempts = {}
+_redeem_lock = threading.Lock()
+_REDEEM_RATE_LIMIT = 5
+_REDEEM_RATE_WINDOW = 60
+_SESSION_TTL = 86400
 
 
 def save_sessions():
     with _sessions_lock:
         keep = {}
+        now = time.time()
         for sid, s in list(rpg_sessions.items()):
+            last_active = s.get("last_active", "")
+            try:
+                if last_active:
+                    last_active_ts = datetime.fromisoformat(last_active.replace('Z', '+00:00')).timestamp()
+                    if now - last_active_ts > _SESSION_TTL:
+                        logger.info(f"save_sessions: removing expired session {sid}")
+                        continue
+            except Exception:
+                pass
             k = {k: v for k, v in s.items()}
             hist = k.get("history", [])
             if hist:
@@ -246,31 +351,34 @@ def save_sessions():
             keep[sid] = k
         max_sessions = 500
         if len(keep) > max_sessions:
-            print(f"[WARNING] save_sessions: truncating {len(keep)} sessions to {max_sessions}", flush=True)
+            logger.warning(f"save_sessions: truncating {len(keep)} sessions to {max_sessions}")
             oldest_keys = sorted(keep.keys(), key=lambda x: keep[x].get("created_at", ""))[:-max_sessions]
             for old_key in oldest_keys:
-                print(f"[WARNING] save_sessions: removing old session {old_key}", flush=True)
+                logger.warning(f"save_sessions: removing old session {old_key}")
                 keep.pop(old_key)
-        atomic_json_dump(keep, SESSIONS_FILE, default=str)
+        atomic_json_dump(keep, SESSIONS_FILE)
 
 
 def load_sessions():
     global rpg_sessions
-    if not os.path.exists(SESSIONS_FILE):
-        return
     with _sessions_lock:
-        with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
-            try:
-                loaded = json.load(f)
-                sessions_data = loaded.get('sessions', loaded)
-                if isinstance(sessions_data, dict):
-                    for sid, s in sessions_data.items():
+        loaded = atomic_json_load(SESSIONS_FILE)
+        if loaded is None:
+            return
+        sessions_data = loaded.get('sessions', loaded)
+        if isinstance(sessions_data, dict):
+            for sid, s in sessions_data.items():
+                rpg_sessions[sid] = s
+        elif isinstance(sessions_data, list):
+            for s in sessions_data:
+                try:
+                    if isinstance(s, dict):
+                        sid = s.get('session_id', str(uuid.uuid4()))
                         rpg_sessions[sid] = s
-                elif isinstance(sessions_data, list):
-                    for s in sessions_data:
-                        rpg_sessions[s.get('session_id', str(uuid.uuid4()))] = s
-            except Exception as e:
-                print(f"[ERROR]: {e}", flush=True)
+                    else:
+                        logger.warning(f"skipping invalid session entry: {type(s)}")
+                except Exception as ex:
+                    logger.error(f"loading session: {ex}")
 
 def load_ratings():
     if not os.path.exists(RATINGS_FILE):
@@ -280,7 +388,7 @@ def load_ratings():
             with open(RATINGS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
     except Exception as e:
-        print(f"[ERROR] load_ratings failed: {e}", flush=True)
+        logger.error(f"load_ratings failed: {e}")
         return {}
 
 def save_ratings(ratings):
@@ -300,7 +408,7 @@ def load_worlds():
                     w["order"] = i
             return worlds
     except Exception as e:
-        print(f"[ERROR] load_worlds failed: {e}", flush=True)
+        logger.error(f"load_worlds failed: {e}")
         return []
 
 def save_worlds_data(worlds):
@@ -316,7 +424,7 @@ def load_submissions():
             with open(SUBMISSIONS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
     except Exception as e:
-        print(f"[ERROR] load_submissions failed: {e}", flush=True)
+        logger.error(f"load_submissions failed: {e}")
         return []
 
 
@@ -371,7 +479,9 @@ class User(UserMixin, db.Model):
     personal_api_base = db.Column(db.String(500), nullable=True)
     personal_api_key = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
-    last_active = db.Column(db.DateTime, default=datetime.now)
+    last_active = db.Column(db.DateTime, default=datetime.now, index=True)
+    token_version = db.Column(db.Integer, default=1)
+    password_reset_required = db.Column(db.Boolean, default=False)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -388,7 +498,8 @@ class User(UserMixin, db.Model):
             'total_tokens': self.total_tokens,
             'has_personal_api': bool(self.personal_api_base and self.personal_api_key),
             'created_at': self.created_at.isoformat(),
-            'last_active': self.last_active.isoformat() if self.last_active else None
+            'last_active': self.last_active.isoformat() if self.last_active else None,
+            'password_reset_required': self.password_reset_required or False
         }
 
 
@@ -486,7 +597,7 @@ class CreditKey(db.Model):
 
 class Feedback(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, nullable=False)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
     username = db.Column(db.String(80), nullable=False)
     category = db.Column(db.String(32), nullable=False, default='suggestion')
     rating = db.Column(db.Integer, nullable=False, default=3)
@@ -516,7 +627,10 @@ class Feedback(db.Model):
 # ============================================================
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    user = db.session.get(User, int(user_id))
+    if user and '_user_token_version' in session and session['_user_token_version'] != (user.token_version or 1):
+        return None
+    return user
 
 
 def admin_required(f):
@@ -536,6 +650,9 @@ def unauthorized():
 def init_db():
     with app.app_context():
         db.create_all()
+        # NOTE: No formal migration system exists. Schema changes are applied ad-hoc via ALTER TABLE
+        # below. For production, adopt a migration framework (e.g., Flask-Migrate/Alembic) and track
+        # schema version in a dedicated table.
         # 迁移：为 user_model_config 添加 api_base 和 api_key 字段（SQLite 兼容）
         try:
             cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(user_model_config)")).fetchall()]
@@ -546,35 +663,51 @@ def init_db():
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"[WARN] user_model_config migration: {e}", flush=True)
+            logger.warning(f"user_model_config migration: {e}")
+        try:
+            user_cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(user)")).fetchall()]
+            if 'token_version' not in user_cols:
+                db.session.execute(db.text("ALTER TABLE user ADD COLUMN token_version INTEGER DEFAULT 1"))
+                db.session.execute(db.text("UPDATE user SET token_version = 1 WHERE token_version IS NULL"))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"token_version migration: {e}")
+        try:
+            db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_user_last_active ON user(last_active)"))
+            db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_feedback_user_id ON feedback(user_id)"))
+            try: db.session.execute(db.text("ALTER TABLE user ADD COLUMN password_reset_required BOOLEAN DEFAULT 0")); db.session.commit()
+            except Exception: pass  # 列已存在
+        except Exception as e:
+            db.session.rollback()
+            logger.warning(f"index migration: {e}")
         admin_exists = db.session.execute(db.text('SELECT COUNT(*) FROM user WHERE username = "admin"')).scalar()
         admin_pwd = os.getenv("ADMIN_PASSWORD")
         if not admin_exists:
             if not admin_pwd:
-                admin_pwd = "123456"
-                print("[INFO] Using default admin password: 123456. Set ADMIN_PASSWORD env var to change.", flush=True)
+                admin_pwd = secrets.token_urlsafe(16)
+                logger.info("Admin password auto-generated (set ADMIN_PASSWORD env var to customize)")
             admin = User(username='admin', role='admin', credits=99999)
             admin.set_password(admin_pwd)
             db.session.add(admin)
-            db.session.commit()
+            safe_commit()
         else:
             if admin_pwd:
                 admin = User.query.filter_by(username='admin').first()
                 admin.set_password(admin_pwd)
-                db.session.commit()
-                print("[INFO] Admin password updated from environment variable.", flush=True)
-        db.session.commit()
-        # Remove zero-credit models (free models)
+                safe_commit()
+                logger.info("Admin password updated from environment variable.")
+        safe_commit()
         zero_credit_models = ['deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-V4-Flash', 'deepseek-ai/DeepSeek-V4-Pro']
         for model_id in zero_credit_models:
             ModelConfig.query.filter_by(model_id=model_id).delete()
             UserModelConfig.query.filter_by(model_id=model_id).delete()
-        db.session.commit()
+        safe_commit()
         api_key_exists = db.session.execute(db.text('SELECT COUNT(*) FROM api_config WHERE key_name = "API_KEY"')).scalar()
         if not api_key_exists:
             db.session.add(ApiConfig(key_name='API_KEY', value=os.getenv('AI_API_KEY', ''), priority=10))
             db.session.add(ApiConfig(key_name='API_URL', value=os.getenv('AI_API_URL', ''), priority=5))
-            db.session.commit()
+            safe_commit()
 
 
 # ============================================================
@@ -586,7 +719,7 @@ def load_agents():
             data = _cached_json_load(AGENTS_FILE, {"agents": []})
             return data.get("agents", [])
     except Exception as e:
-        print(f"[ERROR] load_agents failed: {e}", flush=True)
+        logger.error(f"load_agents failed: {e}")
         return []
 
 
@@ -608,8 +741,8 @@ def mock_reply(message, agent):
     default = agent.get("mock_default", "嗯，我在听，你继续说。")
     for kw, resp in replies.items():
         if kw in message:
-            return resp
-    return default
+            return f"【AI暂未配置】{resp}"
+    return f"【AI暂未配置】{default}"
 
 
 def get_model_price(model_id):
@@ -622,16 +755,24 @@ def get_model_price(model_id):
     return 1
 
 
-def deduct_credits(user, amount):
-    if user.credits >= amount:
-        user.credits -= amount
-        try:
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f"deduct_credits commit failed: {e}")
+def deduct_credits(user, amount, max_retries=3):
+    """Deduct credits with optimistic locking via token_version."""
+    for attempt in range(max_retries):
+        current_ver = user.token_version or 1
+        result = db.session.execute(
+            db.text(
+                "UPDATE user SET credits = credits - :amt, token_version = token_version + 1 "
+                "WHERE id = :uid AND credits >= :amt AND token_version = :ver"
+            ),
+            {"amt": amount, "uid": user.id, "ver": current_ver}
+        )
+        db.session.commit()
+        if result.rowcount > 0:
+            db.session.refresh(user)
+            return True
+        db.session.refresh(user)
+        if user.credits < amount:
             return False
-        return True
     return False
 
 
@@ -644,7 +785,7 @@ def parse_usage(resp_json):
         usage = resp_json.get("usage", {})
         return usage.get("total_tokens", 0), usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
     except Exception as e:
-        print(f"[ERROR]: {e}", flush=True)
+        logger.error(f"parse_usage failed: {e}")
         return 0, 0, 0
 
 
@@ -677,7 +818,7 @@ def get_effective_api(model_id=None, user=None):
             if current_user and current_user.is_authenticated:
                 user = current_user
         except Exception as e:
-            print(f"[ERROR]: {e}", flush=True)
+                                    logger.error(f"SSE chunk parse error: {e}")
     if model_id and user:
         user_model = UserModelConfig.query.filter_by(user_id=user.id, model_id=model_id).first()
         if user_model and user_model.api_base and user_model.api_key:
@@ -719,16 +860,27 @@ def register():
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
 
+    client_ip = request.remote_addr
+    with _register_lock:
+        now = time.time()
+        reg_attempts = _register_attempts.get(client_ip, [])
+        reg_attempts = [t for t in reg_attempts if now - t < _REGISTER_RATE_WINDOW]
+        if len(reg_attempts) >= _REGISTER_RATE_LIMIT:
+            return jsonify({"error": "注册过于频繁，请稍后再试"}), 429
+        reg_attempts.append(now)
+        _register_attempts[client_ip] = reg_attempts
+
     if not username or not password:
         return jsonify({"error": "用户名和密码不能为空"}), 400
     if len(username) < 2 or len(username) > 32:
         return jsonify({"error": "用户名长度必须在2-32位之间"}), 400
     if not re.match(r'^[a-zA-Z0-9\u4e00-\u9fa5_]+$', username):
         return jsonify({"error": "用户名只能包含字母、数字、中文和下划线"}), 400
-    if len(password) < 6:
-        return jsonify({"error": "密码长度至少6位"}), 400
     if len(password) > 128:
         return jsonify({"error": "密码长度不能超过128位"}), 400
+    valid_pwd, pwd_msg = validate_password(password)
+    if not valid_pwd:
+        return jsonify({"error": pwd_msg}), 400
     user = User(username=username, credits=100)
     user.set_password(password)
     db.session.add(user)
@@ -738,10 +890,11 @@ def register():
         db.session.rollback()
         if 'UNIQUE constraint failed' in str(e) or 'duplicate key' in str(e).lower():
             return jsonify({"error": "用户名已存在"}), 400
-        print(f"[ERROR] Registration failed: {e}", flush=True)
+        logger.error(f"Registration failed for username: {username}")
         return jsonify({"error": "注册失败，请重试"}), 500
 
     login_user(user)
+    session['_user_token_version'] = user.token_version or 1
     return jsonify({"message": "注册成功", "user": user.to_dict()}), 201
 
 
@@ -751,7 +904,7 @@ def login():
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
 
-    client_ip = request.remote_addr
+    client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
 
     with _login_lock:
         now = time.time()
@@ -767,11 +920,17 @@ def login():
         return jsonify({"error": "用户名或密码错误"}), 401
 
     login_user(user)
+    # Regenerate session to prevent fixation
+    session_data = {k: v for k, v in session.items() if k != '_csrf_token'}
+    session.clear()
+    session['_user_token_version'] = user.token_version or 1
+    session.update(session_data)
+    session['_csrf_token'] = secrets.token_hex(16)
 
     with _login_lock:
         _login_attempts.pop(client_ip, None)
 
-    return jsonify({"message": "登录成功", "user": user.to_dict()})
+    return jsonify({"message": "登录成功", "user": user.to_dict(), "password_reset_required": user.password_reset_required or False})
 
 
 @app.route("/api/auth/reset-admin-password", methods=["POST"])
@@ -782,14 +941,15 @@ def reset_admin_password():
     if admin:
         new_pwd = secrets.token_urlsafe(12)
         admin.set_password(new_pwd)
+        admin.password_reset_required = True
         try:
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"[ERROR] Admin password reset failed: {e}", flush=True)
+            logger.error("Admin password reset failed")
             return jsonify({"error": "密码重置失败"}), 500
-        print(f"[SECURITY] Admin password reset: {new_pwd}", flush=True)
-        return jsonify({"message": "管理员密码已重置，请查看服务器日志获取新密码"})
+        logger.info("Admin password reset completed")
+        return jsonify({"message": "管理员密码已重置", "new_password": new_pwd})
     return jsonify({"error": "管理员用户不存在"}), 404
 
 
@@ -810,15 +970,18 @@ def change_password():
     if not old_password or not new_password:
         return jsonify({"error": "请输入原密码和新密码"}), 400
     
-    if len(new_password) < 6:
-        return jsonify({"error": "新密码长度至少6位"}), 400
     if len(new_password) > 128:
         return jsonify({"error": "新密码长度不能超过128位"}), 400
-    
+    valid_pwd, pwd_msg = validate_password(new_password)
+    if not valid_pwd:
+        return jsonify({"error": "新" + pwd_msg}), 400
+
     if not current_user.check_password(old_password):
         return jsonify({"error": "原密码不正确"}), 401
     
     current_user.set_password(new_password)
+    current_user.password_reset_required = False
+    current_user.token_version = (current_user.token_version or 1) + 1
     db.session.commit()
     
     logout_user()
@@ -829,8 +992,10 @@ def change_password():
 @app.route("/api/auth/me")
 def get_current_user():
     if current_user.is_authenticated:
-        current_user.last_active = datetime.now()
-        db.session.commit()
+        now = datetime.now()
+        if not current_user.last_active or (now - current_user.last_active).total_seconds() > 60:
+            current_user.last_active = now
+            db.session.commit()
         return jsonify(current_user.to_dict())
     return jsonify({"error": "未登录"}), 401
 
@@ -881,7 +1046,7 @@ def user_api_config():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        print(f"[ERROR] Save API config failed: {e}", flush=True)
+        logger.error(f"Save API config failed: {e}")
         return jsonify({"error": "保存失败"}), 500
     return jsonify({"status": "ok", "has_personal_api": bool(current_user.personal_api_base and current_user.personal_api_key)})
 
@@ -1057,7 +1222,7 @@ def admin_add_model():
 @login_required
 @admin_required
 def admin_update_model(model_id):
-    model = ModelConfig.query.get(model_id)
+    model = db.session.get(ModelConfig, model_id)
     if not model:
         return jsonify({"error": "模型不存在"}), 404
 
@@ -1094,7 +1259,7 @@ def admin_update_model(model_id):
 @login_required
 @admin_required
 def admin_delete_model(model_id):
-    model = ModelConfig.query.get(model_id)
+    model = db.session.get(ModelConfig, model_id)
     if not model:
         return jsonify({"error": "模型不存在"}), 404
 
@@ -1118,7 +1283,7 @@ def admin_list_users():
 @login_required
 @admin_required
 def admin_update_user(user_id):
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return jsonify({"error": "用户不存在"}), 404
 
@@ -1139,6 +1304,10 @@ def admin_update_user(user_id):
             admin_count = User.query.filter_by(role="admin").count()
             if user.role != "admin" and admin_count >= 3:
                 return jsonify({"error": "管理员数量已达上限（3人）"}), 400
+        if role == "user" and user.role == "admin":
+            admin_count = User.query.filter_by(role="admin").count()
+            if admin_count <= 1:
+                return jsonify({"error": "必须至少保留一名管理员"}), 400
         user.role = role
 
     db.session.commit()
@@ -1149,7 +1318,7 @@ def admin_update_user(user_id):
 @login_required
 @admin_required
 def admin_delete_user(user_id):
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if not user:
         return jsonify({"error": "用户不存在"}), 404
     if user.id == current_user.id:
@@ -1237,7 +1406,9 @@ def delete_agent(agent_id):
         return jsonify({"error": "未找到智能体"}), 404
     save_agents(new_agents)
     with _histories_lock:
-        histories.pop(f"{current_user.id}_{agent_id}", None)
+        for key in list(histories.keys()):
+            if key.endswith(f"_{agent_id}"):
+                histories.pop(key, None)
     return jsonify({"status": "ok"})
 
 
@@ -1288,7 +1459,7 @@ def chat():
             
             with requests.post(api_url, headers=headers, json=body, timeout=30) as resp:
                 if resp.status_code != 200:
-                    print(f"[ERROR] chat API failed: {resp.status_code}", flush=True)
+                    logger.error(f"chat API failed: {resp.status_code}")
                     raise Exception(f"API调用失败")
                 result = resp.json()
                 reply = result["choices"][0]["message"]["content"]
@@ -1335,7 +1506,7 @@ def chat():
         })
 
     except Exception as e:
-        print(f"[ERROR] chat failed: {e}", flush=True)
+        logger.error(f"chat failed: {e}")
         return jsonify({"reply": f"（{agent['name']}擦了擦额头的汗）抱歉，刚才出了点问题……请稍后重试"}), 500
 
 
@@ -1347,7 +1518,7 @@ def clear_history(agent_id):
     return jsonify({"status": "ok"})
 
 
-def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=400):
+def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=1200):
     try:
         api_key, api_url = get_effective_api(model)
         if not api_key:
@@ -1362,17 +1533,23 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=400):
             "temperature": temperature,
             "max_tokens": max_tokens
         }
-        with requests.post(api_url, headers=headers, json=body, timeout=60) as resp:
+        with requests.post(api_url, headers=headers, json=body, timeout=120) as resp:
             if resp.status_code != 200:
-                print(f"[ERROR] call_ai API failed: {resp.status_code}", flush=True)
+                logger.error(f"call_ai API failed: {resp.status_code}")
                 raise Exception(f"API调用失败")
             data = resp.json()
             full = data["choices"][0]["message"]["content"]
             total_tokens, _, _ = parse_usage(data)
             story, sections = parse_rpg_reply(full)
+            if "判定" in sections:
+                judgment_text = sections["判定"]
+                judge_result = _resolve_judgment(judgment_text, sections)
+                if judge_result:
+                    story = (story + "\n" + judge_result) if story else judge_result
+                    sections.pop("判定", None)
             return story, sections, total_tokens
     except Exception as e:
-        print(f"[ERROR] call_ai failed: {e}", flush=True)
+        logger.error(f"call_ai failed: {e}")
         return None, {}, 0
 
 
@@ -1397,6 +1574,103 @@ def parse_rpg_reply(text):
         else:
             sections[key] = val
     return story.strip(), sections
+
+
+def roll_d20(modifier=0):
+    """Roll a d20 with modifier, return (roll, total)"""
+    roll = random.randint(1, 20)
+    total = roll + modifier
+    return roll, total
+
+
+def _resolve_judgment(judgment_text, sections=None):
+    """Parse a 【判定】 section from AI output, roll dice server-side, return formatted result string.
+    
+    Expected format: 属性名 难度:XX 说明:XXXX
+    Returns formatted Markdown string with clear success/failure.
+    Returns None if no valid judgment found.
+    """
+    import re
+    text = judgment_text.strip()
+
+    JUDGE_ATTRS = r'(力量|敏捷|智力|魅力|体质|感知|意志|幸运|洞察|潜行|说服|威吓|表演|巧手|运动|察觉|调查|生存|自然|宗教|历史|医疗|洞悉|欺瞒|威逼|表演|手上功夫)'
+    attr_match = re.search(JUDGE_ATTRS, text)
+
+    dc_match = re.search(r'难度[：:]\s*(\d+)', text)
+    desc_match = re.search(r'说明[：:](.*?)$', text, re.DOTALL)
+
+    if not attr_match and not dc_match:
+        return None
+
+    attr_name = attr_match.group(1) if attr_match else "通用"
+    dc = int(dc_match.group(1)) if dc_match else 15
+    desc = desc_match.group(1).strip() if desc_match else ""
+
+    attr_value = None
+    if sections and attr_name != "通用":
+        for key in ['属性', '状态', '技能', '能力']:
+            val = sections.get(key, "")
+            pattern = re.compile(re.escape(attr_name) + r'[：:]\s*(\d+)', re.IGNORECASE)
+            m = pattern.search(val)
+            if m:
+                attr_value = int(m.group(1))
+                break
+
+    if attr_value is not None:
+        modifier = max(-4, min(5, attr_value - 5))
+    else:
+        modifier = 0
+
+    roll, total = roll_d20(modifier)
+    natural_20 = (roll == 20)
+    natural_1 = (roll == 1)
+    success = total >= dc or natural_20
+
+    if natural_20:
+        result_label = "🎉 **大成功！**"
+        impact = "天时地利人和齐聚，你的行动获得了超乎预期的完美效果！"
+    elif natural_1:
+        result_label = "💥 **大失败！**"
+        impact = "命运开了个残酷的玩笑，事情朝着最坏的方向发展了……"
+    elif success:
+        result_label = "✅ **检定成功！**"
+        impact = "你的行动取得了理想的效果，局势正向有利的方向发展。"
+    else:
+        result_label = "❌ **检定失败！**"
+        impact = "事情并没有按照预想的方向发展，你需要重新调整策略……"
+
+    desc_line = "**检定说明**: " + desc + "\n" if desc else ""
+    nat_line = "(自然20！)" if natural_20 else "(自然1……)" if natural_1 else ""
+    nat_line_full = nat_line + "\n" if nat_line else "\n"
+    attr_val_str = " (" + str(attr_value) + ")" if attr_value is not None else ""
+
+    result = (
+        "\n\n━━━━━ 【🎲 技能检定】 ━━━━━\n"
+        "**检定类型**: " + attr_name + "\n"
+        "**难度等级**: DC " + str(dc) + "\n"
+        + desc_line
+        + "━━━━━━━━━━━━━━━━━━━━━\n"
+        + "🎯 **d20 掷出**: **" + str(roll) + "**\n"
+        + nat_line_full
+        + "➕ **属性修正**: " + attr_name + attr_val_str + " = " + ("%+d" % modifier) + "\n"
+        + "📊 **最终结果**: " + str(roll) + " " + ("%+d" % modifier) + " = **" + str(total) + "** (目标: **" + str(dc) + "**)\n"
+        + "━━━━━━━━━━━━━━━━━━━━━\n"
+        + result_label + "\n"
+        + impact + "\n"
+        + "━━━━━━━━━━━━━━━━━━━━━"
+    )
+
+    return result
+
+
+def _parse_relationships(rels_str):
+    rmap = {}
+    if rels_str:
+        for part in rels_str.replace("【", "").replace("】", "").split():
+            if ":" in part:
+                k, v = part.split(":", 1)
+                rmap[k.strip()] = v.strip()
+    return rmap
 
 
 # ============================================================
@@ -1468,7 +1742,7 @@ def active_count():
     """返回所有用户活跃跑团总数"""
     with _sessions_lock:
         result = {"total": len(rpg_sessions)}
-        if current_user.is_admin:
+        if getattr(current_user, 'is_admin', current_user.role == 'admin'):
             by_world = {}
             for sid, s in rpg_sessions.items():
                 wid = s.get("world_id", "unknown")
@@ -1841,9 +2115,9 @@ def start_rpg():
         story, sections, tokens = call_ai(messages,
                         model=model,
                         temperature=world.get("temperature", 0.85),
-                        max_tokens=world.get("max_tokens", 600))
+                        max_tokens=world.get("max_tokens", 1500))
     except Exception as e:
-        print(f"[ERROR] start_rpg AI call failed: {e}", flush=True)
+        logger.error(f"start_rpg AI call failed: {e}")
         story = None
         sections = None
         tokens = 0
@@ -1878,12 +2152,7 @@ def start_rpg():
     }
     save_sessions()
 
-    rmap = {}
-    if rels_str:
-        for part in rels_str.replace("【", "").replace("】", "").split():
-            if ":" in part:
-                k, v = part.split(":", 1)
-                rmap[k.strip()] = v.strip()
+    rmap = _parse_relationships(rels_str)
     rpg_sessions[session_id]["sections"]["关系_map"] = rmap
 
     return jsonify({
@@ -1938,9 +2207,9 @@ def rpg_act():
         story, sections, tokens = call_ai(session["history"],
                         model=model,
                         temperature=world.get("temperature", 0.85),
-                        max_tokens=world.get("max_tokens", 600))
+                        max_tokens=world.get("max_tokens", 1500))
     except Exception as e:
-        print(f"[ERROR] rpg_act AI call failed: {e}", flush=True)
+        logger.error(f"rpg_act AI call failed: {e}")
         story = None
         sections = None
         tokens = 0
@@ -1978,14 +2247,7 @@ def rpg_act():
         "story": story[:150], "sections": dict(sections)
     })
 
-    # Parse relationships
-    rels_str = sections.get("关系", "")
-    rmap = {}
-    if rels_str:
-        for part in rels_str.replace("【", "").replace("】", "").split():
-            if ":" in part:
-                k, v = part.split(":", 1)
-                rmap[k.strip()] = v.strip()
+    rmap = _parse_relationships(sections.get("关系", ""))
     sections["关系_map"] = rmap
 
     save_sessions()
@@ -2030,6 +2292,7 @@ def rpg_act_stream():
     commit_data = {}
 
     def generate():
+        import json as _json
         if not api_key:
             mock_text = "【状态】\n生命值:100/100\n法力值:50/50\n\n（AI 暂未配置，请管理员在面板中配置 API 密钥）"
             for ch in mock_text:
@@ -2044,7 +2307,7 @@ def rpg_act_stream():
             temp_history = [temp_history[0]] + temp_history[-29:]
         body = {"model": model, "messages": temp_history,
                 "temperature": world.get("temperature", 0.85),
-                "max_tokens": world.get("max_tokens", 400)}
+                "max_tokens": world.get("max_tokens", 1500)}
         full_text = ""
         import json as _json
         try:
@@ -2062,10 +2325,10 @@ def rpg_act_stream():
                 elif resp.status_code != 200:
                     try:
                         err_body = resp.text[:500]
-                        print(f"[ERROR] rpg_act_stream API {resp.status_code}: {err_body}", flush=True)
+                        logger.error(f"rpg_act_stream API {resp.status_code}: {err_body}")
                     except Exception as e:
                         err_body = ""
-                        print(f"[ERROR] rpg_act_stream API {resp.status_code}: {e}", flush=True)
+                        logger.error(f"rpg_act_stream API {resp.status_code}: {e}")
                     yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
                     return
                 else:
@@ -2092,32 +2355,32 @@ def rpg_act_stream():
                                         full_text += delta
                                         yield f"data: {_json.dumps({'type':'chunk','text':delta})}\n\n"
                                 except Exception as e:
-                                    print(f"[ERROR]: {e}", flush=True)
+                                    logger.error(f"SSE chunk parse error: {e}")
         except Exception as e:
-            print(f"[ERROR] rpg_act_stream: {e}", flush=True)
+            logger.error(f"rpg_act_stream: {e}")
             yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
             return
 
         story, sections = parse_rpg_reply(full_text)
+        if "判定" in sections:
+            judgment_text = sections["判定"]
+            judge_result = _resolve_judgment(judgment_text, sections)
+            if judge_result:
+                story = (story + "\n" + judge_result) if story else judge_result
+                sections.pop("判定", None)
         for k, v in prev.items():
             if k not in sections and k != "关系_map":
                 sections[k] = v
         state_str = sections.get("状态", "")
         personal = using_personal_api()
         total_tokens = estimate_tokens(full_text)
-        cost = max(0, total_tokens * credits_per_1k // 1000) if (not personal and credits_per_1k > 0) else 0
+        cost = calc_token_cost(total_tokens, credits_per_1k) if (not personal and credits_per_1k > 0) else 0
         if not personal and credits_per_1k > 0 and not deduct_credits(current_user, cost):
             yield f"data: {_json.dumps({'type':'error','text':f'积分不足（需要 {cost} 积分）'})}\n\n"
             return
         if not personal:
             commit_data["total_tokens"] = total_tokens
-        rmap = {}
-        rels_str = sections.get("关系", "")
-        if rels_str:
-            for part in rels_str.replace("【", "").replace("】", "").split():
-                if ":" in part:
-                    k, v = part.split(":", 1)
-                    rmap[k.strip()] = v.strip()
+        rmap = _parse_relationships(sections.get("关系", ""))
         sections["关系_map"] = rmap
 
         sess["last_story"] = story
@@ -2284,14 +2547,7 @@ def branch_session(session_id):
         sess["history"] = kept
     sess["last_active"] = datetime.now().isoformat()
 
-    rels_str = last_sections.get("关系", "")
-    rmap = {}
-    if rels_str:
-        for part in rels_str.replace("【", "").replace("】", "").split():
-            if ":" in part:
-                k, v = part.split(":", 1)
-                rmap[k.strip()] = v.strip()
-    sess["sections"]["关系_map"] = rmap
+    sess["sections"]["关系_map"] = _parse_relationships(last_sections.get("关系", ""))
 
     save_sessions()
 
@@ -2466,7 +2722,7 @@ def generate_credit_key():
 @login_required
 @admin_required
 def delete_credit_key(key_id):
-    key = CreditKey.query.get(key_id)
+    key = db.session.get(CreditKey, key_id)
     if not key:
         return jsonify({"error": "密钥不存在"}), 404
     if key.used:
@@ -2483,6 +2739,16 @@ def delete_credit_key(key_id):
 @app.route("/api/redeem", methods=["POST"])
 @login_required
 def redeem_key():
+    client_ip = request.remote_addr
+    with _redeem_lock:
+        now = time.time()
+        attempts = _redeem_attempts.get(client_ip, [])
+        attempts = [t for t in attempts if now - t < _REDEEM_RATE_WINDOW]
+        if len(attempts) >= _REDEEM_RATE_LIMIT:
+            return jsonify({"error": "兑换过于频繁，请稍后再试"}), 429
+        attempts.append(now)
+        _redeem_attempts[client_ip] = attempts
+
     data = request.json
     code = data.get("key", "").strip().upper()
     if not code:
@@ -2610,7 +2876,8 @@ def feedback_stats():
         ratings.append(fb.rating)
     avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else 0
     stats["avg_rating"] = avg_rating
-    stats["rating_dist"] = {str(i): ratings.count(i) for i in range(1, 6)}
+    counter = collections.Counter(ratings)
+    stats["rating_dist"] = {str(i): counter.get(i, 0) for i in range(1, 6)}
     return jsonify(stats)
 
 
@@ -2664,6 +2931,15 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding='utf-8')
     with app.app_context():
         init_db()
+        # Schema version check — bump SCHEMA_VERSION when making backwards-incompatible DB changes
+        SCHEMA_VERSION = 1
+        try:
+            row = db.session.execute(db.text("SELECT value FROM api_config WHERE key_name = 'schema_version'")).scalar()
+            if not row:
+                db.session.execute(db.text("INSERT OR IGNORE INTO api_config (key_name, value, priority) VALUES ('schema_version', :v, 0)"), {"v": str(SCHEMA_VERSION)})
+                db.session.commit()
+        except Exception:
+            pass
     load_sessions()
     agents = load_agents()
     with app.app_context():
@@ -2684,15 +2960,16 @@ if __name__ == "__main__":
     def not_found(e):
         if request.path.startswith('/api/'):
             return jsonify({"error": "资源不存在"}), 404
-        return render_template('index.html'), 404
+        return render_template('error.html', code=404, message="页面未找到"), 404
 
     @app.errorhandler(500)
     def server_error(e):
         app.logger.error(f"500 error: {e}")
         if request.path.startswith('/api/'):
             return jsonify({"error": "服务器内部错误"}), 500
-        return render_template('index.html'), 500
+        return render_template('error.html', code=500, message="服务器内部错误"), 500
 
-    app.run(debug=False, host=host, port=9000)
+    port = int(os.getenv("PORT", "9000"))
+    app.run(debug=False, host=host, port=port)
 
 # ===== END OF FILE =====

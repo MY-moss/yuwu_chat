@@ -1,15 +1,16 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
 dist/
 build/
 *.spec
+*.pyo
 
-# Environment
-.env
-instance/tavern.db
+# Virtual environment
+venv/
+.venv/
+env/
 
 # IDE
 .vscode/
@@ -17,20 +18,34 @@ instance/tavern.db
 *.swp
 *.swo
 
-# OS
-Thumbs.db
-.DS_Store
-
-# Build output
-release/tavern.exe
-release/instance/
-
-# Logs
+# Database & logs
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+app.log
 *.log
 
-# Windows special files
-nul
+# OS
+.DS_Store
+Thumbs.db
 
-# Documentation and Trae agent files - LOCAL ONLY, never sync to GitHub
+# Build output
+release/
+*.exe
+
+# Environment
+.env
+
+# Runtime
+instance/
+
+# Local docs (not synced to GitHub)
 docs/
 .trae/
+
+# Sensitive files
+*.secret_key
+
+# Runtime data
+*.json

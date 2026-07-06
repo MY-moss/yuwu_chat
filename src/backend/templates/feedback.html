@@ -21,7 +21,7 @@
             <div class="header-right">
                 <div class="user-info" id="userInfo">
                     <span class="username" id="usernameDisplay">用户</span>
-                    <button class="btn-sm" onclick="window.location.href='/'">🏠 回酒馆</button>
+                    <button class="btn-sm" id="backToTavernBtn">🏠 回酒馆</button>
                 </div>
             </div>
         </div>
@@ -113,7 +113,7 @@
             <div class="modal modal-wide">
                 <div class="modal-header">
                     <span id="fbDetailTitle">反馈详情</span>
-                    <button class="modal-close" onclick="closeFbDetail()">&times;</button>
+                    <button class="modal-close" id="fbDetailClose">&times;</button>
                 </div>
                 <div class="modal-body" id="fbDetailBody"></div>
             </div>
@@ -137,6 +137,7 @@
         <div class="toast-container" id="toastContainer"></div>
     </div>
 
+    <script src="/static/utils.js"></script>
     <script src="/static/feedback.js"></script>
 </body>
 </html>

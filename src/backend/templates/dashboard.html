@@ -4,13 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>云雾酒馆 - 管理员大屏监控</title>
+    <link rel="stylesheet" href="/static/style.css">
     <style>
         :root {
             --bg-dark: #0a0a0f;
+            --bg-panel: #1a1a24;
             --bg-card: #1a1a24;
+            --bg-input: #12121a;
             --border: #2a2a3a;
             --text: #e0e0e0;
             --text-dim: #888;
+            --text-bright: #f0f0f0;
             --gold: #d4a84b;
             --gold-dim: rgba(212,168,75,0.3);
             --accent: #c0392b;
@@ -90,8 +94,8 @@
                 <span class="live-dot"></span>
                 <span>实时监控中</span>
             </div>
-            <button class="refresh-btn" onclick="refreshData()">🔄 刷新</button>
-            <button class="logout-btn" onclick="logout()">🚪 退出</button>
+            <button class="refresh-btn" id="dashRefreshBtn">🔄 刷新</button>
+            <button class="logout-btn" id="dashLogoutBtn">🚪 退出</button>
         </div>
     </div>
     
@@ -150,14 +154,9 @@
         </div>
     </div>
     
+    <script src="/static/utils.js"></script>
     <script>
         let refreshTimer = null;
-        
-        var HTML_ENTITY={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
-        function escapeHtml(s) {
-            if (s == null) return '';
-            return String(s).replace(/[&<>"']/g, function(c){return HTML_ENTITY[c];});
-        }
 
         async function fetchStats() {
             try {
@@ -234,7 +233,7 @@
                             <div class="model-bar-fill" style="width: ${Math.min(100, (data.calls / sorted[0][1].calls) * 100)}%"></div>
                         </div>
                     </div>
-                    <div class="model-stats">${data.calls}次 · ${data.tokens}Token</div>
+                    <div class="model-stats">${escapeHtml(data.calls)}次 · ${escapeHtml(data.tokens)}Token</div>
                 </div>
             `).join('');
         }
@@ -248,14 +247,17 @@
             container.innerHTML = list.slice(0, 8).map(s => `
                 <div class="list-item">
                     <span class="name">${escapeHtml(s.player)} · ${escapeHtml(s.world)}</span>
-                    <span class="value">第${s.rounds}轮</span>
+                    <span class="value">第${escapeHtml(s.rounds)}轮</span>
                 </div>
             `).join('');
         }
         
         function updateWorldStats() {
             fetch('/api/rpg/worlds', { credentials: 'include' })
-                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 401) { window.location.href = '/'; return; }
+                    return res.json();
+                })
                 .then(worlds => {
                     const container = document.getElementById('worldStats');
                     if (!worlds || worlds.length === 0) {
@@ -294,10 +296,22 @@
                 .then(() => window.location.href = '/');
         }
         
-        document.addEventListener('DOMContentLoaded', () => {
+        function cleanup() {
+            if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+        }
+        document.addEventListener('DOMContentLoaded', async () => {
+            const preCheck = await fetch('/api/auth/me', { credentials: 'include' });
+            if (preCheck.ok) {
+                const me = await preCheck.json();
+                if (me.role !== 'admin') { window.location.href = '/'; return; }
+            } else { window.location.href = '/'; return; }
             refreshData();
             refreshTimer = setInterval(refreshData, 30000);
         });
+        window.addEventListener('beforeunload', cleanup);
+        window.addEventListener('pagehide', cleanup);
+        document.getElementById('dashRefreshBtn').addEventListener('click', refreshData);
+        document.getElementById('dashLogoutBtn').addEventListener('click', logout);
     </script>
 </body>
 </html>
