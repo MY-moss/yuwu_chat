@@ -13,10 +13,8 @@ if exist ".env" (
     )
 )
 
-if not defined AI_API_KEY (
-    set AI_API_KEY=public
-    set AI_API_URL=https://opencode.ai/zen/v1/chat/completions
-)
+if not defined AI_API_KEY set AI_API_KEY=public
+if not defined AI_API_URL set AI_API_URL=https://opencode.ai/zen/v1/chat/completions
 
 if exist "release\tavern.exe" (
     echo 启动发布版...

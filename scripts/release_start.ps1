@@ -20,13 +20,13 @@ if (Test-Path $envFile) {
     }
 }
 
-if (-not $env:AI_API_KEY) {
-    $env:AI_API_KEY = "public"
-    $env:AI_API_URL = "https://opencode.ai/zen/v1/chat/completions"
+$env:AI_API_KEY = $env:AI_API_KEY ?? "public"
+$env:AI_API_URL = $env:AI_API_URL ?? "https://opencode.ai/zen/v1/chat/completions"
+if ($env:AI_API_KEY -eq "public") {
     Write-Host "  AI: opencode.ai/zen (free)" -ForegroundColor Cyan
     Write-Host "  Key: public" -ForegroundColor Cyan
 } else {
-    Write-Host "  AI: configured from .env" -ForegroundColor Cyan
+    Write-Host "  AI: configured from .env or environment" -ForegroundColor Cyan
     Write-Host "  Key: ********" -ForegroundColor Cyan
 }
 Write-Host ""
