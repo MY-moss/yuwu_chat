@@ -3,9 +3,20 @@ chcp 65001 >nul
 title 云雾酒馆
 cd /d "%~dp0"
 
-set AI_API_KEY=public
-set AI_API_URL=https://opencode.ai/zen/v1/chat/completions
 set PYTHONIOENCODING=utf-8
+
+if exist ".env" (
+    for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
+        if "%%a"=="AI_API_KEY" set "AI_API_KEY=%%b"
+        if "%%a"=="AI_API_URL" set "AI_API_URL=%%b"
+        if "%%a"=="SECRET_KEY" set "SECRET_KEY=%%b"
+    )
+)
+
+if not defined AI_API_KEY (
+    set AI_API_KEY=public
+    set AI_API_URL=https://opencode.ai/zen/v1/chat/completions
+)
 
 if exist "release\tavern.exe" (
     echo 启动发布版...

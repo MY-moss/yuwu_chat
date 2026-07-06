@@ -19,13 +19,27 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":9000 "') do (
 timeout /t 1 /nobreak >nul
 
 echo [2/3] 配置 AI 引擎...
-set AI_API_KEY=public
-set AI_API_URL=https://opencode.ai/zen/v1/chat/completions
-set AI_MODEL=mimo-v2.5-free
 set PYTHONIOENCODING=utf-8
 
-echo   AI: opencode.ai/zen (free)
-echo   Key: public
+if exist ".env" (
+    for /f "usebackq tokens=1,2 delims==" %%a in (".env") do (
+        if "%%a"=="AI_API_KEY" set "AI_API_KEY=%%b"
+        if "%%a"=="AI_API_URL" set "AI_API_URL=%%b"
+        if "%%a"=="AI_MODEL" set "AI_MODEL=%%b"
+        if "%%a"=="SECRET_KEY" set "SECRET_KEY=%%b"
+    )
+)
+
+if not defined AI_API_KEY (
+    set AI_API_KEY=public
+    set AI_API_URL=https://opencode.ai/zen/v1/chat/completions
+    set AI_MODEL=mimo-v2.5-free
+    echo   AI: opencode.ai/zen (free)
+    echo   Key: public
+) else (
+    echo   AI: configured from .env
+    echo   Key: ********
+)
 echo.
 
 echo [3/3] 启动服务器...
