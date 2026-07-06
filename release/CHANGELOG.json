@@ -1,6 +1,14 @@
 {
     "history": [
         {
+            "version": "v2.2.0",
+            "old_version": "v2.1.28",
+            "type": "minor",
+            "type_desc": "架构变更",
+            "description": "H39 JSON→SQLite数据层迁移（Agent/WorldBook/Rating/Submission/UsageLog模型）；H35 API密钥加密存储(Fernet)；H40 API Key日志过滤；M120 SQL LIKE注入修复(escape='\\\\')；新增Agent/WorldBook/WorldRating/WorldSubmission/UsageLog ORM模型及自动迁移",
+            "timestamp": "2026-07-06 23:00:00"
+        },
+        {
             "version": "v2.1.5",
             "old_version": "v2.1.4",
             "type": "minor",

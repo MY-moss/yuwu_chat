@@ -700,5 +700,68 @@
     "tokens": 785,
     "cost": 7,
     "endpoint": "rpg_act_stream"
+  },
+  {
+    "time": "2026-07-06T19:28:50.912138",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 846,
+    "cost": 7,
+    "endpoint": "rpg_act_stream"
+  },
+  {
+    "time": "2026-07-06T20:06:35.214211",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 2087,
+    "cost": 17,
+    "endpoint": "rpg_start"
+  },
+  {
+    "time": "2026-07-06T20:15:23.089938",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 1121,
+    "cost": 9,
+    "endpoint": "rpg_act_stream"
+  },
+  {
+    "time": "2026-07-06T20:28:02.766591",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 1603,
+    "cost": 13,
+    "endpoint": "rpg_act_stream"
+  },
+  {
+    "time": "2026-07-06T20:32:44.236263",
+    "user_id": 1,
+    "username": "admin",
+    "model": "LongCat-2.0",
+    "tokens": 10886,
+    "cost": 88,
+    "endpoint": "rpg_start"
+  },
+  {
+    "time": "2026-07-06T20:41:40.697449",
+    "user_id": 3,
+    "username": "moyang",
+    "model": "LongCat-2.0",
+    "tokens": 10691,
+    "cost": 86,
+    "endpoint": "rpg_start"
+  },
+  {
+    "time": "2026-07-06T20:43:35.298360",
+    "user_id": 3,
+    "username": "moyang",
+    "model": "LongCat-2.0",
+    "tokens": 949,
+    "cost": 8,
+    "endpoint": "rpg_act_stream"
   }
 ]

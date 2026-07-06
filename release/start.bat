@@ -30,14 +30,14 @@ if exist ".env" (
     )
 )
 
-if not defined AI_API_KEY (
-    set AI_API_KEY=public
-    set AI_API_URL=https://opencode.ai/zen/v1/chat/completions
-    set AI_MODEL=mimo-v2.5-free
+if not defined AI_API_KEY set AI_API_KEY=public
+if not defined AI_API_URL set AI_API_URL=https://opencode.ai/zen/v1/chat/completions
+if not defined AI_MODEL set AI_MODEL=mimo-v2.5-free
+if "%AI_API_KEY%"=="public" (
     echo   AI: opencode.ai/zen (free)
     echo   Key: public
 ) else (
-    echo   AI: configured from .env
+    echo   AI: configured from .env or environment
     echo   Key: ********
 )
 echo.

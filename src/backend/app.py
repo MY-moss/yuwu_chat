@@ -26,6 +26,21 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 import secrets
 import random
+import base64
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    HAS_CRYPTO = True
+except ImportError:
+    HAS_CRYPTO = False
+
+
+_API_KEY_PATTERN = re.compile(r'(sk-[a-zA-Z0-9]{20,}|api[_-]?key["\']?\s*[:=]\s*["\']?[a-zA-Z0-9]{16,})', re.IGNORECASE)
+def sanitize_log(msg):
+    if isinstance(msg, str):
+        return _API_KEY_PATTERN.sub('***API_KEY_REDACTED***', msg)
+    return msg
 
 def get_base_path():
     if hasattr(sys, '_MEIPASS'):
@@ -133,6 +148,37 @@ def escape_html(s):
     if s is None:
         return ''
     return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
+
+
+def get_fernet():
+    key_material = app.secret_key.encode() if isinstance(app.secret_key, str) else app.secret_key
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=b'tavern-encrypt-v1', iterations=100000)
+    key = base64.urlsafe_b64encode(kdf.derive(key_material))
+    return Fernet(key)
+
+
+def encrypt_value(plaintext):
+    if not plaintext:
+        return None
+    if not HAS_CRYPTO:
+        return plaintext
+    try:
+        f = get_fernet()
+        return f.encrypt(plaintext.encode()).decode()
+    except Exception:
+        return plaintext
+
+
+def decrypt_value(ciphertext):
+    if not ciphertext:
+        return None
+    if not HAS_CRYPTO:
+        return ciphertext
+    try:
+        f = get_fernet()
+        return f.decrypt(ciphertext.encode()).decode()
+    except Exception:
+        return ciphertext
 
 def safe_commit():
     try:
@@ -378,86 +424,117 @@ def load_sessions():
                     logger.error(f"loading session: {ex}")
 
 def load_ratings():
-    if not os.path.exists(RATINGS_FILE):
-        return {}
     try:
         with _ratings_lock:
-            with open(RATINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            ratings = WorldRating.query.all()
+            result = {}
+            for r in ratings:
+                if r.world_id not in result:
+                    result[r.world_id] = []
+                result[r.world_id].append(r.to_dict())
+            return result
     except Exception as e:
         logger.error(f"load_ratings failed: {e}")
         return {}
 
-def save_ratings(ratings):
+def save_ratings(ratings_dict):
     with _ratings_lock:
-        atomic_json_dump(ratings, RATINGS_FILE)
+        WorldRating.query.delete()
+        if not safe_commit():
+            logger.error("save_ratings: delete failed, abort")
+            return
+        for wid, rating_list in ratings_dict.items():
+            for r in rating_list:
+                wr = WorldRating(
+                    world_id=wid, user_id=r.get('user_id', 0),
+                    username=r.get('username', ''),
+                    rating=r.get('rating', 3), review=r.get('review', '')
+                )
+                db.session.add(wr)
+        safe_commit()
 
 def load_worlds():
     try:
-        if not os.path.exists(WORLDS_FILE):
-            return []
         with _worlds_lock:
-            with open(WORLDS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            worlds = data.get("worlds", [])
-            for i, w in enumerate(worlds):
-                if "order" not in w:
-                    w["order"] = i
-            return worlds
+            worlds = WorldBook.query.order_by(WorldBook.order).all()
+            return [w.to_dict() for w in worlds]
     except Exception as e:
         logger.error(f"load_worlds failed: {e}")
         return []
 
-def save_worlds_data(worlds):
+def save_worlds_data(worlds_list):
     with _worlds_lock:
-        atomic_json_dump({"worlds": worlds}, WORLDS_FILE)
+        WorldBook.query.delete()
+        if not safe_commit():
+            logger.error("save_worlds_data: delete failed, abort")
+            return
+        for w_data in worlds_list:
+            wb = WorldBook(
+                id=w_data.get('id'), name=w_data.get('name', ''),
+                emoji=w_data.get('emoji', '📖'), genre=w_data.get('genre', ''),
+                desc=w_data.get('desc', ''),
+                system_prompt=w_data.get('system_prompt', ''),
+                temperature=w_data.get('temperature', 0.85),
+                max_tokens=w_data.get('max_tokens', 700),
+                order=w_data.get('order', 0)
+            )
+            db.session.add(wb)
+        safe_commit()
 
 
 def load_submissions():
-    if not os.path.exists(SUBMISSIONS_FILE):
-        return []
     try:
         with _submissions_lock:
-            with open(SUBMISSIONS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            subs = WorldSubmission.query.order_by(WorldSubmission.created_at.desc()).all()
+            return [s.to_dict() for s in subs]
     except Exception as e:
         logger.error(f"load_submissions failed: {e}")
         return []
 
 
-def save_submissions(subs):
+def save_submissions(subs_list):
     with _submissions_lock:
-        atomic_json_dump(subs, SUBMISSIONS_FILE)
+        WorldSubmission.query.delete()
+        if not safe_commit():
+            logger.error("save_submissions: delete failed, abort")
+            return
+        for s_data in subs_list:
+            ws = WorldSubmission(
+                id=s_data.get('id'), name=s_data.get('name', ''),
+                emoji=s_data.get('emoji', '📖'), genre=s_data.get('genre', ''),
+                desc=s_data.get('desc', ''),
+                system_prompt=s_data.get('system_prompt', ''),
+                temperature=s_data.get('temperature', 0.85),
+                max_tokens=s_data.get('max_tokens', 700),
+                submitted_by=s_data.get('submitted_by', 0),
+                submitter=s_data.get('submitter', ''),
+                status=s_data.get('status', 'pending')
+            )
+            db.session.add(ws)
+        safe_commit()
 
 
 _usage_log_lock = threading.Lock()
 
 def log_usage(user_id, username, model, tokens, cost, endpoint):
-    entry = {
-        "time": datetime.now().isoformat(),
-        "user_id": user_id,
-        "username": username,
-        "model": model,
-        "tokens": tokens,
-        "cost": cost,
-        "endpoint": endpoint
-    }
-    with _usage_log_lock:
-        logs = []
-        if os.path.exists(USAGE_LOG_FILE):
-            with open(USAGE_LOG_FILE, "r", encoding="utf-8") as f:
-                try: 
-                    logs = json.load(f)
-                    if isinstance(logs, dict):
-                        logs = logs.get("logs", [])
-                    elif not isinstance(logs, list):
-                        logs = []
-                except Exception as e: logs = []
-        logs.append(entry)
+    try:
+        log = UsageLog(
+            user_id=user_id, username=username,
+            model=model, tokens=tokens, cost=cost,
+            endpoint=endpoint
+        )
+        db.session.add(log)
+        db.session.commit()
         # Keep last 10000 entries
-        if len(logs) > 10000:
-            logs = logs[-10000:]
-        atomic_json_dump(logs, USAGE_LOG_FILE)
+        count = UsageLog.query.count()
+        if count > 10000:
+            oldest = UsageLog.query.order_by(UsageLog.id).limit(count - 10000).all()
+            for o in oldest:
+                db.session.delete(o)
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"log_usage failed: {e}")
 
 
 # ===== 反馈系统（已迁移至 Feedback 模型，文件读写已废弃）=====
@@ -619,6 +696,142 @@ class Feedback(db.Model):
         }
 
 
+class Agent(db.Model):
+    __tablename__ = 'agent'
+    id = db.Column(db.String(100), primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    avatar = db.Column(db.String(500), nullable=False, default='🤖')
+    model = db.Column(db.String(100), nullable=False)
+    system_prompt = db.Column(db.Text, nullable=False)
+    temperature = db.Column(db.Float, default=0.8)
+    max_tokens = db.Column(db.Integer, default=1024)
+    greeting = db.Column(db.String(500), nullable=True)
+    mock_replies = db.Column(db.Text, nullable=True)
+    mock_default = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        d = {
+            'id': self.id, 'name': self.name, 'avatar': self.avatar,
+            'model': self.model, 'system_prompt': self.system_prompt,
+            'temperature': self.temperature, 'max_tokens': self.max_tokens
+        }
+        if self.greeting:
+            d['greeting'] = self.greeting
+        if self.mock_replies:
+            try: d['mock_replies'] = json.loads(self.mock_replies)
+            except Exception: d['mock_replies'] = {}
+        if self.mock_default:
+            d['mock_default'] = self.mock_default
+        return d
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(
+            id=data.get('id'), name=data.get('name', ''),
+            avatar=data.get('avatar', '🤖'), model=data.get('model', ''),
+            system_prompt=data.get('system_prompt', ''),
+            temperature=data.get('temperature', 0.8),
+            max_tokens=data.get('max_tokens', 1024),
+            greeting=data.get('greeting'),
+            mock_replies=json.dumps(data.get('mock_replies', {}), ensure_ascii=False) if data.get('mock_replies') else None,
+            mock_default=data.get('mock_default')
+        )
+
+
+class WorldBook(db.Model):
+    __tablename__ = 'world_book'
+    id = db.Column(db.String(100), primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    emoji = db.Column(db.String(20), default='📖')
+    genre = db.Column(db.String(100), default='')
+    desc = db.Column(db.Text, default='')
+    system_prompt = db.Column(db.Text, default='')
+    temperature = db.Column(db.Float, default=0.85)
+    max_tokens = db.Column(db.Integer, default=700)
+    order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'name': self.name, 'emoji': self.emoji,
+            'genre': self.genre, 'desc': self.desc,
+            'system_prompt': self.system_prompt,
+            'temperature': self.temperature, 'max_tokens': self.max_tokens,
+            'order': self.order
+        }
+
+
+class WorldRating(db.Model):
+    __tablename__ = 'world_rating'
+    id = db.Column(db.Integer, primary_key=True)
+    world_id = db.Column(db.String(100), db.ForeignKey('world_book.id'), nullable=False)
+    user_id = db.Column(db.Integer, nullable=False)
+    username = db.Column(db.String(80), nullable=False)
+    rating = db.Column(db.Integer, nullable=False)
+    review = db.Column(db.Text, default='')
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, onupdate=datetime.now)
+
+    __table_args__ = (
+        db.UniqueConstraint('world_id', 'user_id', name='uq_world_user_rating'),
+    )
+
+    def to_dict(self):
+        return {
+            'user_id': self.user_id, 'username': self.username,
+            'rating': self.rating, 'review': self.review,
+            'created_at': self.created_at.isoformat()
+        }
+
+
+class WorldSubmission(db.Model):
+    __tablename__ = 'world_submission'
+    id = db.Column(db.String(100), primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    emoji = db.Column(db.String(20), default='📖')
+    genre = db.Column(db.String(100), default='')
+    desc = db.Column(db.Text, default='')
+    system_prompt = db.Column(db.Text, default='')
+    temperature = db.Column(db.Float, default=0.85)
+    max_tokens = db.Column(db.Integer, default=700)
+    submitted_by = db.Column(db.Integer, nullable=False)
+    submitter = db.Column(db.String(80), default='')
+    status = db.Column(db.String(20), default='pending')
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'name': self.name, 'emoji': self.emoji,
+            'genre': self.genre, 'desc': self.desc,
+            'system_prompt': self.system_prompt,
+            'temperature': self.temperature, 'max_tokens': self.max_tokens,
+            'submitted_by': self.submitted_by, 'submitter': self.submitter,
+            'status': self.status, 'created_at': self.created_at.isoformat()
+        }
+
+
+class UsageLog(db.Model):
+    __tablename__ = 'usage_log'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, nullable=False, index=True)
+    username = db.Column(db.String(80), nullable=False)
+    model = db.Column(db.String(100), nullable=False)
+    tokens = db.Column(db.Integer, default=0)
+    cost = db.Column(db.Float, default=0.0)
+    endpoint = db.Column(db.String(50), default='chat')
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id, 'user_id': self.user_id,
+            'username': self.username, 'model': self.model,
+            'tokens': self.tokens, 'cost': self.cost,
+            'endpoint': self.endpoint,
+            'time': self.created_at.isoformat()
+        }
+
+
 # ============================================================
 # 区块 05 · 认证辅助
 # ============================================================
@@ -644,13 +857,124 @@ def unauthorized():
     return jsonify({"error": "未登录"}), 401
 
 
+def migrate_json_to_sqlite():
+    with app.app_context():
+        tables = [r[0] for r in db.session.execute(db.text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()]
+        migrated = {}
+        for t in ['agent', 'world_book', 'world_rating', 'world_submission', 'usage_log']:
+            migrated[t] = t in tables
+
+        if not migrated['agent']:
+            db.create_all()
+
+        if migrated['agent'] and Agent.query.first() is None:
+            if os.path.exists(AGENTS_FILE):
+                try:
+                    data = _cached_json_load(AGENTS_FILE, {"agents": []})
+                    agents = data.get("agents", [])
+                    for a in agents:
+                        existing = Agent.query.get(a.get('id'))
+                        if not existing:
+                            db.session.add(Agent.from_dict(a))
+                    db.session.commit()
+                    logger.info(f"Migrated {len(agents)} agents from JSON to SQLite")
+                except Exception as e:
+                    db.session.rollback()
+                    logger.warning(f"Agent migration skipped: {e}")
+
+        if migrated['world_book'] and WorldBook.query.first() is None:
+            if os.path.exists(WORLDS_FILE):
+                try:
+                    data = _cached_json_load(WORLDS_FILE, {"worlds": []})
+                    worlds = data.get("worlds", [])
+                    for w in worlds:
+                        existing = WorldBook.query.get(w.get('id'))
+                        if not existing:
+                            db.session.add(WorldBook(
+                                id=w.get('id'), name=w.get('name', ''),
+                                emoji=w.get('emoji', '📖'), genre=w.get('genre', ''),
+                                desc=w.get('desc', ''),
+                                system_prompt=w.get('system_prompt', ''),
+                                temperature=w.get('temperature', 0.85),
+                                max_tokens=w.get('max_tokens', 700),
+                                order=w.get('order', 0)
+                            ))
+                    db.session.commit()
+                    logger.info(f"Migrated {len(worlds)} worlds from JSON to SQLite")
+                except Exception as e:
+                    db.session.rollback()
+                    logger.warning(f"World migration skipped: {e}")
+
+        if migrated['world_rating'] and WorldRating.query.first() is None:
+            if os.path.exists(RATINGS_FILE):
+                try:
+                    data = _cached_json_load(RATINGS_FILE, {})
+                    for wid, ratings in data.items():
+                        for r in ratings:
+                            db.session.add(WorldRating(
+                                world_id=wid, user_id=r.get('user_id'),
+                                username=r.get('username', ''),
+                                rating=r.get('rating', 3),
+                                review=r.get('review', ''),
+                                created_at=datetime.fromisoformat(r.get('created_at', datetime.now().isoformat()))
+                            ))
+                    db.session.commit()
+                    logger.info("Migrated ratings from JSON to SQLite")
+                except Exception as e:
+                    db.session.rollback()
+                    logger.warning(f"Rating migration skipped: {e}")
+
+        if migrated['world_submission'] and WorldSubmission.query.first() is None:
+            if os.path.exists(SUBMISSIONS_FILE):
+                try:
+                    data = _cached_json_load(SUBMISSIONS_FILE, [])
+                    for s in data:
+                        db.session.add(WorldSubmission(
+                            id=s.get('id'), name=s.get('name', ''),
+                            emoji=s.get('emoji', '📖'), genre=s.get('genre', ''),
+                            desc=s.get('desc', ''),
+                            system_prompt=s.get('system_prompt', ''),
+                            temperature=s.get('temperature', 0.85),
+                            max_tokens=s.get('max_tokens', 700),
+                            submitted_by=s.get('submitted_by', 0),
+                            submitter=s.get('submitter', ''),
+                            status=s.get('status', 'pending')
+                        ))
+                    db.session.commit()
+                    logger.info("Migrated submissions from JSON to SQLite")
+                except Exception as e:
+                    db.session.rollback()
+                    logger.warning(f"Submission migration skipped: {e}")
+
+        if migrated['usage_log'] and UsageLog.query.first() is None:
+            if os.path.exists(USAGE_LOG_FILE):
+                try:
+                    data = _cached_json_load(USAGE_LOG_FILE, [])
+                    logs = data if isinstance(data, list) else data.get('logs', [])
+                    for l in logs[-5000:]:
+                        try:
+                            ts = l.get('time', l.get('created_at', datetime.now().isoformat()))
+                            db.session.add(UsageLog(
+                                user_id=l.get('user_id', 0),
+                                username=l.get('username', ''),
+                                model=l.get('model', ''),
+                                tokens=l.get('tokens', 0),
+                                cost=l.get('cost', 0),
+                                endpoint=l.get('endpoint', 'chat'),
+                                created_at=datetime.fromisoformat(ts.replace('Z', '+00:00').split('+')[0])
+                            ))
+                        except Exception: pass
+                    db.session.commit()
+                    logger.info(f"Migrated usage logs from JSON to SQLite")
+                except Exception as e:
+                    db.session.rollback()
+                    logger.warning(f"UsageLog migration skipped: {e}")
+
+
 def init_db():
     with app.app_context():
         db.create_all()
-        # NOTE: No formal migration system exists. Schema changes are applied ad-hoc via ALTER TABLE
-        # below. For production, adopt a migration framework (e.g., Flask-Migrate/Alembic) and track
-        # schema version in a dedicated table.
-        # 迁移：为 user_model_config 添加 api_base 和 api_key 字段（SQLite 兼容）
+        migrate_json_to_sqlite()
         try:
             cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(user_model_config)")).fetchall()]
             if 'api_base' not in cols:
@@ -674,7 +998,7 @@ def init_db():
             db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_user_last_active ON user(last_active)"))
             db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_feedback_user_id ON feedback(user_id)"))
             try: db.session.execute(db.text("ALTER TABLE user ADD COLUMN password_reset_required BOOLEAN DEFAULT 0")); db.session.commit()
-            except Exception: pass  # 列已存在
+            except Exception: pass
         except Exception as e:
             db.session.rollback()
             logger.warning(f"index migration: {e}")
@@ -713,24 +1037,24 @@ def init_db():
 def load_agents():
     try:
         with _agents_lock:
-            data = _cached_json_load(AGENTS_FILE, {"agents": []})
-            return data.get("agents", [])
+            agents = Agent.query.all()
+            return [a.to_dict() for a in agents]
     except Exception as e:
         logger.error(f"load_agents failed: {e}")
         return []
 
 
-def save_agents(agents):
+def save_agents(agents_list):
     with _agents_lock:
-        atomic_json_dump({"agents": agents}, AGENTS_FILE)
-    _invalidate_json_cache(AGENTS_FILE)
+        Agent.query.delete()
+        for a_data in agents_list:
+            db.session.add(Agent.from_dict(a_data))
+        db.session.commit()
 
 
 def get_agent(agent_id):
-    for a in load_agents():
-        if a["id"] == agent_id:
-            return a
-    return None
+    agent = Agent.query.get(agent_id)
+    return agent.to_dict() if agent else None
 
 
 def mock_reply(message, agent):
@@ -819,16 +1143,16 @@ def get_effective_api(model_id=None, user=None):
     if model_id and user:
         user_model = UserModelConfig.query.filter_by(user_id=user.id, model_id=model_id).first()
         if user_model and user_model.api_base and user_model.api_key:
-            return user_model.api_key, user_model.api_base
+            return decrypt_value(user_model.api_key), user_model.api_base
     if model_id:
         model = ModelConfig.query.filter_by(model_id=model_id).first()
         if model and model.api_base and model.api_key:
-            return model.api_key, model.api_base
+            return decrypt_value(model.api_key), model.api_base
     if user and user.personal_api_base and user.personal_api_key:
-        return user.personal_api_key, user.personal_api_base
+        return decrypt_value(user.personal_api_key), user.personal_api_base
     key = get_api_config("API_KEY", os.getenv("AI_API_KEY", ""))
     url = get_api_config("API_URL", os.getenv("AI_API_URL", ""))
-    return key, url
+    return decrypt_value(key) if key else key, url
 
 
 # ============================================================
@@ -903,27 +1227,14 @@ def user_usage():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
     per_page = min(per_page, 100)
-    with _usage_log_lock:
-        if not os.path.exists(USAGE_LOG_FILE):
-            return jsonify({"logs": [], "total": 0, "page": page, "pages": 0})
-        with open(USAGE_LOG_FILE, "r", encoding="utf-8") as f:
-            try:
-                logs = json.load(f)
-                if isinstance(logs, dict):
-                    logs = list(logs.values())
-                elif not isinstance(logs, list):
-                    logs = []
-            except Exception:
-                logs = []
-    my_logs = [l for l in logs if l.get("user_id") == current_user.id]
-    my_logs.sort(key=lambda x: x.get("time", ""), reverse=True)
-    total = len(my_logs)
+    query = UsageLog.query.filter_by(user_id=current_user.id).order_by(UsageLog.created_at.desc())
+    total = query.count()
     pages = max(1, (total + per_page - 1) // per_page)
     page = min(page, pages)
     start = (page - 1) * per_page
-    end = start + per_page
+    logs = query.offset(start).limit(per_page).all()
     return jsonify({
-        "logs": my_logs[start:end],
+        "logs": [l.to_dict() for l in logs],
         "total": total,
         "page": page,
         "pages": pages
@@ -1072,12 +1383,12 @@ def user_api_config():
             current_user.personal_api_base = None
     if "api_key" in data:
         v = data.get("api_key", "")
-        current_user.personal_api_key = v.strip() if v else None
+        current_user.personal_api_key = encrypt_value(v.strip()) if v else None
     try:
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Save API config failed: {e}")
+        logger.error(sanitize_log(f"Save API config failed: {e}"))
         return jsonify({"error": "保存失败"}), 500
     return jsonify({"status": "ok", "has_personal_api": bool(current_user.personal_api_base and current_user.personal_api_key)})
 
@@ -1145,7 +1456,8 @@ def add_user_model():
                 return jsonify({"error": "API地址不安全: " + msg}), 400
             model.api_base = v
     if "api_key" in data:
-        model.api_key = data.get("api_key", "").strip() or None
+        v = data.get("api_key", "").strip() or None
+        model.api_key = encrypt_value(v) if v else None
     db.session.add(model)
     db.session.commit()
     return jsonify(model.to_dict()), 201
@@ -1177,7 +1489,7 @@ def update_user_model(model_id):
     if "api_key" in data:
         v = data["api_key"]
         if v and v.strip() != '********':
-            model.api_key = v.strip()
+            model.api_key = encrypt_value(v.strip())
         elif not v:
             model.api_key = None
 
@@ -1243,7 +1555,8 @@ def admin_add_model():
                 return jsonify({"error": "API地址不安全: " + msg}), 400
             model.api_base = v
     if "api_key" in data:
-        model.api_key = data.get("api_key", "").strip() or None
+        v = data.get("api_key", "").strip() or None
+        model.api_key = encrypt_value(v) if v else None
     db.session.add(model)
     db.session.commit()
     return jsonify(model.to_dict()), 201
@@ -1278,7 +1591,7 @@ def admin_update_model(model_id):
     if "api_key" in data:
         v = data["api_key"]
         if v and v.strip() != '********':
-            model.api_key = v.strip()
+            model.api_key = encrypt_value(v.strip())
     if "priority" in data:
         model.priority = int(data["priority"])
 
@@ -1490,7 +1803,7 @@ def chat():
             
             with requests.post(api_url, headers=headers, json=body, timeout=30) as resp:
                 if resp.status_code != 200:
-                    logger.error(f"chat API failed: {resp.status_code}")
+                    logger.error(sanitize_log(f"chat API failed: {resp.status_code}"))
                     raise Exception(f"API调用失败")
                 result = resp.json()
                 reply = result["choices"][0]["message"]["content"]
@@ -1537,7 +1850,7 @@ def chat():
         })
 
     except Exception as e:
-        logger.error(f"chat failed: {e}")
+        logger.error(sanitize_log(f"chat failed: {e}"))
         return jsonify({"reply": f"（{agent['name']}擦了擦额头的汗）抱歉，刚才出了点问题……请稍后重试"}), 500
 
 
@@ -1566,7 +1879,7 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=1200)
         }
         with requests.post(api_url, headers=headers, json=body, timeout=120) as resp:
             if resp.status_code != 200:
-                logger.error(f"call_ai API failed: {resp.status_code}")
+                logger.error(sanitize_log(f"call_ai API failed: {resp.status_code}"))
                 raise Exception(f"API调用失败")
             data = resp.json()
             full = data["choices"][0]["message"]["content"]
@@ -1949,36 +2262,26 @@ def my_submissions():
 @login_required
 @admin_required
 def admin_stats():
-    if not os.path.exists(USAGE_LOG_FILE):
-        return jsonify({"total_calls": 0, "total_tokens": 0, "total_cost": 0, "users": {}, "models": {}})
-    with _usage_log_lock:
-        with open(USAGE_LOG_FILE, "r", encoding="utf-8") as f:
-            try:
-                logs = json.load(f)
-                if isinstance(logs, dict):
-                    logs = list(logs.values())
-                elif not isinstance(logs, list):
-                    logs = []
-            except Exception as e: logs = []
-    total_calls = len(logs)
-    total_tokens = 0
-    total_cost = 0
-    users = {}
-    models = {}
-    for l in logs:
-        if not isinstance(l, dict):
-            continue
-        total_tokens += l.get("tokens", 0)
-        total_cost += l.get("cost", 0)
-        u = l.get("username", "?")
-        users[u] = users.get(u, {"calls":0, "tokens":0, "cost":0})
-        users[u]["calls"] += 1
-        users[u]["tokens"] += l.get("tokens", 0)
-        users[u]["cost"] += l.get("cost", 0)
-        m = l.get("model", "?")
-        models[m] = models.get(m, {"calls":0, "tokens":0})
-        models[m]["calls"] += 1
-        models[m]["tokens"] += l.get("tokens", 0)
+    from sqlalchemy import func
+    stats = db.session.query(
+        func.count(UsageLog.id).label('total_calls'),
+        func.coalesce(func.sum(UsageLog.tokens), 0).label('total_tokens'),
+        func.coalesce(func.sum(UsageLog.cost), 0).label('total_cost')
+    ).first()
+    total_calls = stats.total_calls or 0
+    total_tokens = stats.total_tokens or 0
+    total_cost = float(stats.total_cost or 0)
+    user_stats = db.session.query(
+        UsageLog.username, func.count(UsageLog.id).label('calls'),
+        func.coalesce(func.sum(UsageLog.tokens), 0).label('tokens'),
+        func.coalesce(func.sum(UsageLog.cost), 0).label('cost')
+    ).group_by(UsageLog.username).all()
+    users = {u.username: {"calls": u.calls, "tokens": u.tokens, "cost": float(u.cost)} for u in user_stats}
+    model_stats = db.session.query(
+        UsageLog.model, func.count(UsageLog.id).label('calls'),
+        func.coalesce(func.sum(UsageLog.tokens), 0).label('tokens')
+    ).group_by(UsageLog.model).all()
+    models = {m.model: {"calls": m.calls, "tokens": m.tokens} for m in model_stats}
     with _sessions_lock:
         active_sessions = len(rpg_sessions)
         sessions_detail = []
@@ -2365,10 +2668,10 @@ def rpg_act_stream():
                 elif resp.status_code != 200:
                     try:
                         err_body = resp.text[:500]
-                        logger.error(f"rpg_act_stream API {resp.status_code}: {err_body}")
+                        logger.error(sanitize_log(f"rpg_act_stream API {resp.status_code}: {err_body}"))
                     except Exception as e:
                         err_body = ""
-                        logger.error(f"rpg_act_stream API {resp.status_code}: {e}")
+                        logger.error(sanitize_log(f"rpg_act_stream API {resp.status_code}: {e}"))
                     yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
                     return
                 else:
@@ -2924,9 +3227,9 @@ def list_feedback():
         escaped_search = search.replace("%", "\\%").replace("_", "\\_")
         search_pattern = f'%{escaped_search}%'
         query = query.filter(
-            (Feedback.title.ilike(search_pattern)) | 
-            (Feedback.content.ilike(search_pattern)) |
-            (Feedback.username.ilike(search_pattern))
+            (Feedback.title.ilike(search_pattern, escape='\\')) | 
+            (Feedback.content.ilike(search_pattern, escape='\\')) |
+            (Feedback.username.ilike(search_pattern, escape='\\'))
         )
 
     total = query.count()

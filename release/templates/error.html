@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ code }} - 云雾酒馆</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="tavern-bg"></div>
+    <div class="error-screen">
+        <div class="error-box">
+            <div class="error-code">{{ code }}</div>
+            <div class="error-message">{{ message }}</div>
+            <div class="error-sub">不如回到酒馆，喝一杯压压惊</div>
+            <a href="/" class="btn-add" style="margin-top: 20px; display: inline-block;">🏠 回到首页</a>
+        </div>
+    </div>
+    <style>
+        .error-screen {
+            display: flex; align-items: center; justify-content: center;
+            min-height: 100vh; padding: 20px;
+        }
+        .error-box {
+            text-align: center; padding: 48px 40px;
+            background: var(--panel-bg); border: 1px solid var(--border);
+            border-radius: 12px; max-width: 420px; width: 100%;
+        }
+        .error-code {
+            font-size: 72px; font-weight: 700;
+            color: var(--gold); font-family: serif;
+            text-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+            line-height: 1;
+        }
+        .error-message {
+            font-size: 18px; color: var(--text); margin: 16px 0 8px;
+        }
+        .error-sub {
+            font-size: 14px; color: var(--text-dim);
+        }
+    </style>
+</body>
+</html>
