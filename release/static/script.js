@@ -589,6 +589,59 @@ function setupEventListeners() {
     });
     $('changePwdSubmit').addEventListener('click', changePassword);
 
+    // Usage History
+    let usagePage = 1;
+    async function loadUsage(p) {
+        usagePage = p || 1;
+        try {
+            const data = await api('/api/user/usage?page=' + usagePage + '&per_page=20');
+            const list = $('usageList');
+            const summary = $('usageSummary');
+            if (data.total === 0) {
+                list.innerHTML = '<div class="status-empty">暂无消耗记录</div>';
+                summary.textContent = '';
+                $('usagePagination').innerHTML = '';
+                return;
+            }
+            let totalCost = 0, totalTokens = 0;
+            data.logs.forEach(l => { totalCost += l.cost || 0; totalTokens += l.tokens || 0; });
+            summary.textContent = '共 ' + data.total + ' 条记录 | 累计消耗 ' + totalCost + ' 积分 · ' + totalTokens + ' tokens';
+            list.innerHTML = data.logs.map(l => {
+                const t = l.time ? l.time.replace('T', ' ').slice(0, 19) : '--';
+                const model = l.model || '--';
+                const cost = l.cost !== undefined ? l.cost + ' 积分' : '--';
+                const tokens = l.tokens || 0;
+                return '<div class="usage-item" style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;">' +
+                    '<span style="color:var(--text-dim);min-width:150px;">' + escapeHtml(t) + '</span>' +
+                    '<span style="flex:1;padding:0 12px;">' + escapeHtml(model) + '</span>' +
+                    '<span style="color:var(--gold);min-width:60px;text-align:right;">' + escapeHtml(String(cost)) + '</span>' +
+                    '<span style="color:var(--text-dim);min-width:60px;text-align:right;">' + tokens + ' tok</span>' +
+                    '</div>';
+            }).join('');
+            let phtml = '';
+            for (let i = 1; i <= data.pages; i++) {
+                phtml += '<button class="btn-sm ' + (i === data.page ? 'active' : '') + '" data-p="' + i + '" style="' + (i === data.page ? 'background:var(--gold);color:var(--bg);' : '') + '">' + i + '</button>';
+            }
+            $('usagePagination').innerHTML = phtml;
+            $('usagePagination').querySelectorAll('button').forEach(b => {
+                b.addEventListener('click', () => loadUsage(parseInt(b.dataset.p)));
+            });
+        } catch (e) {
+            console.error('[ERROR] loadUsage:', e);
+            $('usageList').innerHTML = '<div class="status-empty">加载失败</div>';
+        }
+    }
+    $('usageBtn')?.addEventListener('click', () => {
+        $('usageModal').classList.add('show');
+        loadUsage(1);
+    });
+    $('usageClose')?.addEventListener('click', () => {
+        $('usageModal').classList.remove('show');
+    });
+    $('usageModal')?.addEventListener('click', e => {
+        if (e.target === $('usageModal')) $('usageModal').classList.remove('show');
+    });
+
     // Mode Tabs
     document.querySelectorAll('.mode-tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -1272,6 +1325,7 @@ async function actGame(choice) {
             const reader = resp.body.getReader();
             const dec = new TextDecoder();
             let buffer = '', full = '', startTime = Date.now();
+            let updatePending = false;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -1290,15 +1344,21 @@ async function actGame(choice) {
                     }
                     if (json.type === 'chunk') {
                         full += json.text;
-                        storyText.innerHTML = renderMarkdown(full);
-                        storyBox.scrollTop = storyBox.scrollHeight;
-                        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                        const estTotal = Math.max(800, full.length * 2);
-                        const pct = Math.min(95, full.length / estTotal * 100);
-                        const speed = elapsed > 0 ? (full.length / parseFloat(elapsed)).toFixed(0) : 0;
-                        updateProgress(pct, Math.round(pct) + '% · ' + full.length + '字');
-                        $('loadingSub').textContent = '⏱ ' + elapsed + 's · ' + speed + '字/s';
-                        updateLoadingStatus('AI 正在生成故事...');
+                        if (!updatePending) {
+                            updatePending = true;
+                            requestAnimationFrame(() => {
+                                storyText.innerHTML = renderMarkdown(full);
+                                storyBox.scrollTop = storyBox.scrollHeight;
+                                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                                const estTotal = Math.max(800, full.length * 2);
+                                const pct = Math.min(95, full.length / estTotal * 100);
+                                const speed = elapsed > 0 ? (full.length / parseFloat(elapsed)).toFixed(0) : 0;
+                                updateProgress(pct, Math.round(pct) + '% · ' + full.length + '字');
+                                $('loadingSub').textContent = '⏱ ' + elapsed + 's · ' + speed + '字/s';
+                                updateLoadingStatus('AI 正在生成故事...');
+                                updatePending = false;
+                            });
+                        }
                     } else if (json.type === 'done') {
                         updateProgress(100, '100%');
                         updateLoadingStatus('✓ 故事生成完成，正在渲染...');
@@ -1386,38 +1446,69 @@ async function actGame(choice) {
 // ============================================================
 // 区块 10 · Markdown渲染
 // ============================================================
+const mdCache = new Map();
+
 function renderMarkdown(text) {
     if (!text) return '';
-    const raw = String(text);
+    let raw = String(text);
+    raw = raw.replace(/\\n/g, '\n')
+             .replace(/\\r/g, '\r')
+             .replace(/\\t/g, '\t')
+             .replace(/\\"/g, '"')
+             .replace(/\\'/g, "'")
+             .replace(/\\\\/g, '\\');
+    
+    if (mdCache.size > 100) mdCache.clear();
+    if (mdCache.has(raw)) return mdCache.get(raw);
+    
+    let result;
     try {
         if (typeof marked !== 'undefined') {
             marked.setOptions({ breaks: true, gfm: true });
             const html = marked.parse(raw);
             if (typeof DOMPurify !== 'undefined') {
-                return DOMPurify.sanitize(html, { ADD_TAGS: ['pre', 'code'], ADD_ATTR: ['class'] });
+                result = DOMPurify.sanitize(html, { ADD_TAGS: ['pre', 'code'], ADD_ATTR: ['class'] });
+            } else {
+                result = escapeHtml(html);
             }
-            return escapeHtml(html);
+        } else {
+            result = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
         }
     } catch (e) { 
         console.error('Render markdown failed:', e); 
         toast('内容渲染失败', 'warn');
+        result = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
     }
-    // Fallback: basic HTML escape
-    return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+    mdCache.set(raw, result);
+    return result;
 }
+
+let highlightScheduled = false;
 
 function highlightCode() {
-    if (typeof hljs !== 'undefined') {
-        hljs.highlightAll();
-    }
+    if (highlightScheduled) return;
+    highlightScheduled = true;
+    setTimeout(() => {
+        if (typeof hljs !== 'undefined') {
+            hljs.highlightAll();
+        }
+        highlightScheduled = false;
+    }, 100);
 }
 
-// Lightweight plain-text cleanup for status values and short snippets (NOT for story text)
 function cleanText(t) {
-    return String(t || '')
-        .replace(/\n{3,}/g, '\n\n')
-        .replace(/[ \t]+/g, ' ')
-        .trim();
+    if (!t) return '';
+    let text = String(t);
+    text = text.replace(/\\n/g, '\n')
+               .replace(/\\r/g, '\r')
+               .replace(/\\t/g, '\t')
+               .replace(/\\"/g, '"')
+               .replace(/\\'/g, "'")
+               .replace(/\\\\/g, '\\')
+               .replace(/\n{3,}/g, '\n\n')
+               .replace(/[ \t]+/g, ' ')
+               .trim();
+    return text;
 }
 
 function renderStory(text) {
@@ -1514,7 +1605,7 @@ function renderStatus(sectionsOrText) {
         personalContent.innerHTML = html || '<div class="status-empty">暂无关键数据</div>';
         return;
     }
-    let clean = String(sectionsOrText).replace(/【[^】]*】/g, '').trim();
+    let clean = cleanText(String(sectionsOrText).replace(/【[^】]*】/g, ''));
     const items = clean.split(/\s+/).filter(s => s.includes(':'));
     if (items.length === 0) { personalContent.innerHTML = '<div class="status-empty">'+escapeHtml(clean)+'</div>'; return; }
     personalContent.innerHTML = items.map(i => {
@@ -1831,9 +1922,11 @@ function renderRelationships(rels) {
         body.innerHTML = '<div class="status-empty" style="padding:12px 0;">暂无关系数据</div>';
         return;
     }
-    body.innerHTML = Object.entries(rels).map(([k, v]) =>
-        `<div class="status-item"><span class="status-label">${escapeHtml(k)}</span><span class="status-value highlight">${escapeHtml(v)}</span></div>`
-    ).join('');
+    body.innerHTML = Object.entries(rels).map(([k, v]) => {
+        const cleanK = cleanText(k);
+        const cleanV = cleanText(v);
+        return `<div class="status-item"><span class="status-label">${escapeHtml(cleanK)}</span><span class="status-value highlight">${escapeHtml(cleanV)}</span></div>`;
+    }).join('');
 }
 
 $('exitGameBtn').addEventListener('click', () => {
@@ -3072,7 +3165,7 @@ if ('serviceWorker' in navigator) {
             });
         });
     }).catch((error) => {
-        console.log('Service Worker registration failed:', error);
+        console.error('Service Worker registration failed:', error);
     });
 }
 

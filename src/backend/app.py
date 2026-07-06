@@ -128,7 +128,6 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = False  # Set True in production with HTTPS
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
-app.config['SESSION_PROTECTION'] = 'basic'
 
 def escape_html(s):
     if s is None:
@@ -153,8 +152,6 @@ def validate_password(password):
         return False, "密码必须包含至少一个大写字母"
     if not re.search(r'[0-9]', password):
         return False, "密码必须包含至少一个数字"
-    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
-        return False, "密码必须包含至少一个特殊字符"
     return True, ""
 
 @app.before_request
@@ -319,8 +316,8 @@ _LOGIN_RATE_LIMIT = 5
 _LOGIN_RATE_WINDOW = 60
 _register_attempts = {}
 _register_lock = threading.Lock()
-_REGISTER_RATE_LIMIT = 3
-_REGISTER_RATE_WINDOW = 3600
+_REGISTER_RATE_LIMIT = 5
+_REGISTER_RATE_WINDOW = 60
 _redeem_attempts = {}
 _redeem_lock = threading.Lock()
 _REDEEM_RATE_LIMIT = 5
@@ -761,7 +758,7 @@ def deduct_credits(user, amount, max_retries=3):
         current_ver = user.token_version or 1
         result = db.session.execute(
             db.text(
-                "UPDATE user SET credits = credits - :amt, token_version = token_version + 1 "
+                "UPDATE user SET credits = credits - :amt "
                 "WHERE id = :uid AND credits >= :amt AND token_version = :ver"
             ),
             {"amt": amount, "uid": user.id, "ver": current_ver}
@@ -860,16 +857,6 @@ def register():
     username = data.get("username", "").strip()
     password = data.get("password", "").strip()
 
-    client_ip = request.remote_addr
-    with _register_lock:
-        now = time.time()
-        reg_attempts = _register_attempts.get(client_ip, [])
-        reg_attempts = [t for t in reg_attempts if now - t < _REGISTER_RATE_WINDOW]
-        if len(reg_attempts) >= _REGISTER_RATE_LIMIT:
-            return jsonify({"error": "注册过于频繁，请稍后再试"}), 429
-        reg_attempts.append(now)
-        _register_attempts[client_ip] = reg_attempts
-
     if not username or not password:
         return jsonify({"error": "用户名和密码不能为空"}), 400
     if len(username) < 2 or len(username) > 32:
@@ -881,6 +868,17 @@ def register():
     valid_pwd, pwd_msg = validate_password(password)
     if not valid_pwd:
         return jsonify({"error": pwd_msg}), 400
+
+    client_ip = request.remote_addr
+    with _register_lock:
+        now = time.time()
+        reg_attempts = _register_attempts.get(client_ip, [])
+        reg_attempts = [t for t in reg_attempts if now - t < _REGISTER_RATE_WINDOW]
+        if len(reg_attempts) >= _REGISTER_RATE_LIMIT:
+            return jsonify({"error": "注册过于频繁，请稍后再试"}), 429
+        reg_attempts.append(now)
+        _register_attempts[client_ip] = reg_attempts
+
     user = User(username=username, credits=100)
     user.set_password(password)
     db.session.add(user)
@@ -897,6 +895,39 @@ def register():
     session.permanent = True
     session['_user_token_version'] = user.token_version or 1
     return jsonify({"message": "注册成功", "user": user.to_dict()}), 201
+
+
+@app.route("/api/user/usage", methods=["GET"])
+@login_required
+def user_usage():
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+    per_page = min(per_page, 100)
+    with _usage_log_lock:
+        if not os.path.exists(USAGE_LOG_FILE):
+            return jsonify({"logs": [], "total": 0, "page": page, "pages": 0})
+        with open(USAGE_LOG_FILE, "r", encoding="utf-8") as f:
+            try:
+                logs = json.load(f)
+                if isinstance(logs, dict):
+                    logs = list(logs.values())
+                elif not isinstance(logs, list):
+                    logs = []
+            except Exception:
+                logs = []
+    my_logs = [l for l in logs if l.get("user_id") == current_user.id]
+    my_logs.sort(key=lambda x: x.get("time", ""), reverse=True)
+    total = len(my_logs)
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, pages)
+    start = (page - 1) * per_page
+    end = start + per_page
+    return jsonify({
+        "logs": my_logs[start:end],
+        "total": total,
+        "page": page,
+        "pages": pages
+    })
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -1554,7 +1585,7 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=1200)
 def parse_rpg_reply(text):
     import re
     text = text.strip()
-    marker_re = r'[【（\[\(]([^】）\]\)]+)[】）\]\)]'
+    marker_re = r'【([^】]+)】'
     matches = list(re.finditer(marker_re, text))
     if not matches:
         return text, {}
@@ -1667,6 +1698,12 @@ def _parse_relationships(rels_str):
         for part in rels_str.replace("【", "").replace("】", "").split():
             if ":" in part:
                 k, v = part.split(":", 1)
+                rmap[k.strip()] = v.strip()
+    if not rmap and rels_str:
+        for line in rels_str.replace("\r", "").split("\n"):
+            line = line.strip()
+            if ":" in line and not line.startswith("http"):
+                k, v = line.split(":", 1)
                 rmap[k.strip()] = v.strip()
     return rmap
 
@@ -2281,7 +2318,7 @@ def rpg_act_stream():
     ctx = f"我选择：{choice}"
     if prev:
         ctx += "\n\n当前数据：" + "; ".join(f"【{k}】{v}" for k, v in prev.items() if not isinstance(v, dict))
-    ctx += "\n\n请继续故事并输出更新后的所有数据段"
+    ctx += "\n\n请继续故事，并在末尾输出更新后的所有数据段：【状态】【属性】【关系】【背包】【技能】等"
     sess["model"] = model
 
     api_key, api_url = get_effective_api(model)

@@ -31,8 +31,9 @@ app.log
 Thumbs.db
 
 # Build output
-release/
-*.exe
+release/*.exe
+release/instance/
+release/.env
 
 # Environment
 .env
@@ -47,5 +48,12 @@ docs/
 # Sensitive files
 *.secret_key
 
-# Runtime data
-*.json
+# Runtime data (per-session data)
+rpg_sessions.json
+usage_log.json
+worldbooks.json
+world_ratings.json
+world_submissions.json
+agents.json
+feedback.json
+CHANGELOG.json

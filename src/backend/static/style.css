@@ -166,31 +166,34 @@ body {
 }
 .auth-btn { 
     width: 100%; 
-    padding: 14px; 
-    font-size: 17px; 
-    margin-top: 12px;
-    background: linear-gradient(135deg, var(--gold), var(--gold-dim));
-    border: none;
-    border-radius: 12px;
-    color: var(--bg-dark);
-    font-weight: 700;
+    padding: 16px; 
+    font-size: 18px; 
+    margin-top: 16px;
+    background: linear-gradient(135deg, #ffd700, #daa520);
+    border: 2px solid rgba(255,215,0,0.5);
+    border-radius: 14px;
+    color: #1a1410;
+    font-weight: 800;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 6px 20px rgba(212,168,75,0.35);
+    box-shadow: 0 8px 25px rgba(212,168,75,0.4), 0 0 0 1px rgba(255,215,0,0.2) inset;
+    text-shadow: 0 1px 2px rgba(255,255,255,0.3);
 }
 .auth-btn:hover:not(:disabled) { 
-    transform: translateY(-3px); 
-    box-shadow: 0 10px 30px rgba(212,168,75,0.5);
-    background: linear-gradient(135deg, var(--gold-light), var(--gold));
+    transform: translateY(-4px) scale(1.02); 
+    box-shadow: 0 15px 40px rgba(212,168,75,0.6), 0 0 30px rgba(255,215,0,0.3);
+    background: linear-gradient(135deg, #fff5cc, #ffd700);
+    border-color: rgba(255,215,0,0.8);
 }
 .auth-btn:active:not(:disabled) { 
-    transform: translateY(-1px); 
-    box-shadow: 0 4px 14px rgba(212,168,75,0.3); 
+    transform: translateY(-1px) scale(0.99); 
+    box-shadow: 0 4px 15px rgba(212,168,75,0.3); 
 }
 .auth-btn:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: not-allowed;
     box-shadow: none;
+    border-color: rgba(212,168,75,0.2);
 }
 .auth-hint {
     font-size: 12px;
@@ -428,18 +431,28 @@ body {
 }
 .pwd-toggle {
     position: absolute;
-    right: 8px;
-    background: transparent;
-    border: none;
+    right: 10px;
+    background: rgba(212,168,75,0.15);
+    border: 1px solid rgba(212,168,75,0.3);
+    border-radius: 6px;
     cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-size: 16px;
-    color: var(--text-dim);
-    padding: 4px;
+    color: var(--gold);
+    padding: 0;
     line-height: 1;
-    transition: color 0.2s;
+    transition: all 0.2s ease;
 }
 .pwd-toggle:hover {
-    color: var(--gold);
+    background: rgba(212,168,75,0.25);
+    border-color: var(--gold);
+    color: var(--gold-light);
+    transform: scale(1.1);
+    box-shadow: 0 0 12px rgba(212,168,75,0.4);
 }
 .model-select:focus { outline: none; border-color: var(--gold); }
 .model-select optgroup { background: var(--bg-panel); color: var(--gold-dim); font-size: 11px; }
