@@ -25,6 +25,13 @@ function toast(msg, type) {
     setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, TOAST_DURATION);
 }
 
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 async function fetchCsrfToken() {
     try {
         const res = await fetch('/api/csrf-token', { credentials: 'include' });
@@ -48,7 +55,8 @@ async function api(url, options = {}) {
         credentials: 'include',
         ...options
     });
-    return res.json();
+    if (res.status === 401) { window.location.href = '/'; return { error: '未登录' }; }
+    try { return await res.json(); } catch { return { error: '服务器响应异常' }; }
 }
 
 function authApi(url, options = {}) {
@@ -82,6 +90,8 @@ async function init() {
         console.error('[ERROR] feedback init:', e);
         toast('页面初始化失败，请刷新重试', 'error');
     }
+    $('backToTavernBtn').addEventListener('click', () => window.location.href = '/');
+    $('fbDetailClose').addEventListener('click', closeFbDetail);
 }
 
 // ============================================================
@@ -234,8 +244,8 @@ async function loadFeedbackList() {
             <div class="fb-card-content">${escapeHtml(fb.content)}</div>
             <div class="fb-card-footer">
                 <div style="display:flex;gap:6px;align-items:center;">
-                    <span class="fb-tag fb-tag-${fb.category}">${categoryNames[fb.category] || fb.category}</span>
-                    <span class="fb-status fb-status-${fb.status}">${statusNames[fb.status] || fb.status}</span>
+                    <span class="fb-tag fb-tag-${escapeHtml(fb.category)}">${categoryNames[fb.category] || fb.category}</span>
+                    <span class="fb-status fb-status-${escapeHtml(fb.status)}">${statusNames[fb.status] || fb.status}</span>
                 </div>
                 <span>${escapeHtml(fb.username)} · ${formatDate(fb.created_at)}</span>
             </div>
@@ -307,8 +317,8 @@ async function openFbDetail(id) {
         <div class="fb-detail-title">${escapeHtml(fb.title)}</div>
         <div class="fb-detail-section">
             <div class="fb-detail-label">分类</div>
-            <span class="fb-tag fb-tag-${fb.category}">${categoryNames[fb.category]}</span>
-            <span class="fb-status fb-status-${fb.status}" style="margin-left:6px;">${statusNames[fb.status]}</span>
+            <span class="fb-tag fb-tag-${escapeHtml(fb.category)}">${categoryNames[fb.category] || fb.category}</span>
+            <span class="fb-status fb-status-${escapeHtml(fb.status)}" style="margin-left:6px;">${statusNames[fb.status] || fb.status}</span>
             <span class="fb-card-rating" style="margin-left:8px;">${ratingStars}</span>
         </div>
         <div class="fb-detail-section">
@@ -388,12 +398,6 @@ function showConfirmModal(msg) {
         $('fbConfirmOk').onclick = () => { cleanup(); resolve(true); };
         $('fbConfirmCancel').onclick = () => { cleanup(); resolve(false); };
     });
-}
-
-const HTML_ENTITY = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
-function escapeHtml(s) {
-    if (s == null) return '';
-    return String(s).replace(/[&<>"']/g, c => HTML_ENTITY[c]);
 }
 
 init();

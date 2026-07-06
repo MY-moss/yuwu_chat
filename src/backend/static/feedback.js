@@ -25,6 +25,13 @@ function toast(msg, type) {
     setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, TOAST_DURATION);
 }
 
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 async function fetchCsrfToken() {
     try {
         const res = await fetch('/api/csrf-token', { credentials: 'include' });

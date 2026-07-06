@@ -128,7 +128,7 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = False  # Set True in production with HTTPS
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
-app.config['SESSION_PROTECTION'] = 'strong'
+app.config['SESSION_PROTECTION'] = 'basic'
 
 def escape_html(s):
     if s is None:
@@ -250,7 +250,7 @@ def load_version():
     ]
     for version_file in paths:
         try:
-            with open(version_file, "r", encoding="utf-8") as f:
+            with open(version_file, "r", encoding="utf-8-sig") as f:
                 v = json.load(f)
                 build = v.get("build", 0)
                 if build > 0:
@@ -280,7 +280,7 @@ VERSION = load_version()
 CHANGELOG = load_changelog()
 
 # 强制所有跑团输出格式 — 内容来自 rpg_format.txt
-MANDATORY_RPG_FORMAT = (BASE_PATH / "rpg_format.txt").read_text(encoding="utf-8")
+MANDATORY_RPG_FORMAT = open(os.path.join(BASE_PATH, "rpg_format.txt"), "r", encoding="utf-8").read()
 
 histories = {}
 rpg_sessions = {}
@@ -817,8 +817,8 @@ def get_effective_api(model_id=None, user=None):
             from flask_login import current_user
             if current_user and current_user.is_authenticated:
                 user = current_user
-        except Exception as e:
-                                    logger.error(f"SSE chunk parse error: {e}")
+        except Exception:
+            pass
     if model_id and user:
         user_model = UserModelConfig.query.filter_by(user_id=user.id, model_id=model_id).first()
         if user_model and user_model.api_base and user_model.api_key:
@@ -894,6 +894,7 @@ def register():
         return jsonify({"error": "注册失败，请重试"}), 500
 
     login_user(user)
+    session.permanent = True
     session['_user_token_version'] = user.token_version or 1
     return jsonify({"message": "注册成功", "user": user.to_dict()}), 201
 
@@ -920,17 +921,14 @@ def login():
         return jsonify({"error": "用户名或密码错误"}), 401
 
     login_user(user)
-    # Regenerate session to prevent fixation
-    session_data = {k: v for k, v in session.items() if k != '_csrf_token'}
-    session.clear()
+    session.permanent = True
     session['_user_token_version'] = user.token_version or 1
-    session.update(session_data)
     session['_csrf_token'] = secrets.token_hex(16)
 
     with _login_lock:
         _login_attempts.pop(client_ip, None)
 
-    return jsonify({"message": "登录成功", "user": user.to_dict(), "password_reset_required": user.password_reset_required or False})
+    return jsonify({"message": "登录成功", "user": user.to_dict(), "password_reset_required": user.password_reset_required or False, "csrf_token": session['_csrf_token']})
 
 
 @app.route("/api/auth/reset-admin-password", methods=["POST"])
@@ -2318,7 +2316,8 @@ def rpg_act_stream():
                     with requests.post(api_url, headers=headers, json=body, timeout=60) as resp_retry:
                         if resp_retry.status_code == 200:
                             data = resp_retry.json()
-                            full_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            choices = data.get("choices", [])
+                            full_text = choices[0].get("message", {}).get("content", "") if choices else ""
                             for ch in full_text:
                                 yield f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"
                             import time; time.sleep(0.02)
@@ -2338,7 +2337,8 @@ def rpg_act_stream():
                         raw = first + b"".join(list(it))
                         try:
                             data = _json.loads(raw.decode("utf-8"))
-                            full_text = data.get("choices", [{}])[0].get("message", {}).get("content", full_text)
+                            choices = data.get("choices", [])
+                            full_text = choices[0].get("message", {}).get("content", full_text) if choices else full_text
                         except Exception as e:
                             full_text = raw.decode("utf-8", errors="replace")
                     else:
@@ -2350,12 +2350,13 @@ def rpg_act_stream():
                                 if chunk.strip() == "[DONE]": break
                                 try:
                                     d = _json.loads(chunk)
-                                    delta = d.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    choices = d.get("choices", [])
+                                    delta = choices[0].get("delta", {}).get("content", "") if choices else ""
                                     if delta:
                                         full_text += delta
                                         yield f"data: {_json.dumps({'type':'chunk','text':delta})}\n\n"
-                                except Exception as e:
-                                    logger.error(f"SSE chunk parse error: {e}")
+                                except Exception:
+                                    pass
         except Exception as e:
             logger.error(f"rpg_act_stream: {e}")
             yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"

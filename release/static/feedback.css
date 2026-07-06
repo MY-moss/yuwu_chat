@@ -2,6 +2,17 @@
    文件: feedback.css | 职责: 反馈页面样式 | 区块数: 6
    ============================================================ */
 
+
+/* --- CSS 变量（与 style.css :root 互补）--- */
+:root {
+    --fb-suggestion: #f1c40f;
+    --fb-praise: #2ecc71;
+    --fb-other: #95a5a6;
+    --fb-status-open: #f39c12;
+    --fb-status-resolved: #2ecc71;
+    --fb-status-closed: #95a5a6;
+}
+
 /* ============================================================
    区块 01 · 全局与统计
    ============================================================ */
@@ -203,11 +214,9 @@
     color: var(--text-dim);
     line-height: 1.5;
     display: -webkit-box;
-    display: box;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
-    box-orient: vertical;
     overflow: hidden;
 }
 .fb-card-footer {
@@ -227,11 +236,11 @@
     font-size: 11px;
     font-weight: 600;
 }
-.fb-tag-bug { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
-.fb-tag-feature { background: rgba(52, 152, 219, 0.2); color: #3498db; }
-.fb-tag-suggestion { background: rgba(241, 196, 15, 0.2); color: #f1c40f; }
-.fb-tag-praise { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
-.fb-tag-other { background: rgba(149, 165, 166, 0.2); color: #95a5a6; }
+.fb-tag-bug { background: rgba(231, 76, 60, 0.2); color: var(--accent-glow); }
+.fb-tag-feature { background: rgba(52, 152, 219, 0.2); color: var(--info); }
+.fb-tag-suggestion { background: rgba(241, 196, 15, 0.2); color: var(--fb-suggestion); }
+.fb-tag-praise { background: rgba(46, 204, 113, 0.2); color: var(--fb-praise); }
+.fb-tag-other { background: rgba(149, 165, 166, 0.2); color: var(--fb-other); }
 
 .fb-status {
     display: inline-block;
@@ -240,10 +249,10 @@
     font-size: 11px;
     font-weight: 600;
 }
-.fb-status-open { background: rgba(243, 156, 18, 0.2); color: #f39c12; }
-.fb-status-in_progress { background: rgba(52, 152, 219, 0.2); color: #3498db; }
-.fb-status-resolved { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
-.fb-status-closed { background: rgba(149, 165, 166, 0.2); color: #95a5a6; }
+.fb-status-open { background: rgba(243, 156, 18, 0.2); color: var(--fb-status-open); }
+.fb-status-in_progress { background: rgba(52, 152, 219, 0.2); color: var(--info); }
+.fb-status-resolved { background: rgba(46, 204, 113, 0.2); color: var(--fb-status-resolved); }
+.fb-status-closed { background: rgba(149, 165, 166, 0.2); color: var(--fb-status-closed); }
 
 /* --- Rating display --- */
 .fb-card-rating {

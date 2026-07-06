@@ -295,6 +295,7 @@ async function login() {
         }
 
         currentUser = data.user;
+        if (data.csrf_token) csrfToken = data.csrf_token;
         if (data.password_reset_required) {
             currentUser = data.user;
             showForcePasswordChange();
@@ -419,8 +420,7 @@ async function changePassword() {
 
 // ---- Force password change after admin reset ----
 function showForcePasswordChange() {
-    const loginPwd = $("loginPassword").value.trim();
-    if (!pwd || pwd.length < 8) {
+    const pwd = $("loginPassword").value.trim();
     if (!pwd || pwd.length < 8) {
         logout();
         return;
@@ -428,7 +428,7 @@ function showForcePasswordChange() {
     toast("正在更新密码...");
     api("/api/auth/change-password", {
         method: "POST",
-        body: JSON.stringify({ old_password: loginPassword, new_password: pwd })
+        body: JSON.stringify({ old_password: $("loginPassword").value, new_password: pwd })
     }).then(data => {
         if (data.error) { toast(data.error); logout(); }
         else { toast("密码已更新，欢迎回来！"); showMainScreen(); }
@@ -1273,6 +1273,7 @@ async function actGame(choice) {
                     }
                 }
             }
+            
             if (full && !storyText.textContent.startsWith('❌')) {
                 storyText.innerHTML = renderMarkdown(full);
                 renderChoices(full);
@@ -1282,7 +1283,7 @@ async function actGame(choice) {
             rpgAbortController = null;
             _rpgRequestActive = false;
             return;
-        }
+            
         } catch (e) {
             if (e.name === 'AbortError') {
                 console.info('[INFO] actGame aborted by user');
@@ -1523,10 +1524,10 @@ function renderChoices(storyText) {
         allMatches.push({ num: m[1], text: m[2].trim(), pos: m.index });
     }
 
-    // Keep only choices near the end (within last 300 chars), max 6
+    // Keep only choices with text, near the end (within last 300 chars), max 6
     const choices = allMatches.length > 2
-        ? allMatches.filter(c => text.length - c.pos < 300).slice(-6)
-        : allMatches;
+        ? allMatches.filter(c => c.text && text.length - c.pos < 300).slice(-6)
+        : allMatches.filter(c => c.text);
 
     if (choices.length === 0) {
         const btn = document.createElement('button');
