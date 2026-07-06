@@ -212,6 +212,8 @@ async function loadFeedbackList() {
     if (status) url += `&status=${encodeURIComponent(status)}`;
     if (search) url += `&search=${encodeURIComponent(search)}`;
 
+    showFeedbackSkeleton();
+
     const data = await authApi(url);
 
     if (data.error) {
@@ -268,6 +270,22 @@ async function loadFeedbackList() {
 function goPage(page) {
     currentPage = page;
     loadFeedbackList();
+}
+
+function showFeedbackSkeleton() {
+    const skeleton = Array.from({ length: 5 }, () => `
+        <div class="fb-skeleton-card">
+            <div class="fb-skeleton-title"></div>
+            <div class="fb-skeleton-content"></div>
+            <div class="fb-skeleton-content"></div>
+            <div class="fb-skeleton-footer">
+                <div class="fb-skeleton-tag"></div>
+                <div class="fb-skeleton-time"></div>
+            </div>
+        </div>
+    `).join('');
+    $('fbList').innerHTML = skeleton;
+    $('fbPagination').style.display = 'none';
 }
 
 function formatDate(dateStr) {

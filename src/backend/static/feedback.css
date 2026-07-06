@@ -288,7 +288,65 @@
 .fb-page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ============================================================
-   区块 06 · 详情弹窗与响应式
+   区块 06 · 骨架屏
+   ============================================================ */
+.fb-skeleton-card {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    background: rgba(0, 0, 0, 0.15);
+    position: relative;
+    overflow: hidden;
+}
+.fb-skeleton-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+    animation: shimmer 1.5s infinite;
+}
+.fb-skeleton-title {
+    height: 18px;
+    width: 60%;
+    background: var(--bg-card);
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+.fb-skeleton-content {
+    height: 14px;
+    width: 80%;
+    background: var(--bg-card);
+    border-radius: 4px;
+    margin-bottom: 4px;
+}
+.fb-skeleton-content:last-child {
+    width: 50%;
+    margin-bottom: 8px;
+}
+.fb-skeleton-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.fb-skeleton-tag {
+    height: 16px;
+    width: 40px;
+    background: var(--bg-card);
+    border-radius: 4px;
+}
+.fb-skeleton-time {
+    height: 14px;
+    width: 80px;
+    background: var(--bg-card);
+    border-radius: 4px;
+}
+
+/* ============================================================
+   区块 07 · 详情弹窗与响应式
    ============================================================ */
 #fbDetailBody { padding: 16px; max-height: 60vh; overflow-y: auto; }
 .fb-detail-section { margin-bottom: 16px; }

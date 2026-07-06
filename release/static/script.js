@@ -3061,4 +3061,19 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js').then((registration) => {
+        registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            newWorker.addEventListener('statechange', () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    toast('发现新版本，刷新页面以更新', 'info');
+                }
+            });
+        });
+    }).catch((error) => {
+        console.log('Service Worker registration failed:', error);
+    });
+}
+
 // ===== END OF FILE =====
