@@ -519,6 +519,69 @@ body {
 }
 .btn-manage:hover { background: var(--gold); color: var(--bg-dark); border-color: var(--gold); }
 
+.chat-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    background: rgba(42,32,24,0.8);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+.chat-search-input {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.chat-search-input:focus {
+    border-color: var(--gold);
+}
+.chat-search-input::placeholder {
+    color: var(--text-dim);
+}
+.chat-filter-role {
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+}
+.chat-filter-role:focus {
+    border-color: var(--gold);
+}
+.chat-search-clear {
+    padding: 8px 12px;
+    background: rgba(192,57,43,0.2);
+    border: 1px solid rgba(192,57,43,0.3);
+    border-radius: 8px;
+    color: var(--accent);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.chat-search-clear:hover {
+    background: rgba(192,57,43,0.3);
+}
+.msg.highlight {
+    background: rgba(212,168,75,0.15) !important;
+    border: 1px solid rgba(212,168,75,0.3) !important;
+    animation: highlight-pulse 0.5s ease;
+}
+@keyframes highlight-pulse {
+    0% { background: rgba(212,168,75,0.3); }
+    100% { background: rgba(212,168,75,0.15); }
+}
+
 .chat-box {
     flex: 1;
     min-height: 400px;

@@ -3076,4 +3076,66 @@ if ('serviceWorker' in navigator) {
     });
 }
 
+function initChatSearch() {
+    const searchInput = $('chatSearchInput');
+    const filterRole = $('chatFilterRole');
+    const clearBtn = $('chatSearchClear');
+    if (!searchInput || !filterRole || !clearBtn) return;
+
+    function applySearch() {
+        const keyword = searchInput.value.trim().toLowerCase();
+        const role = filterRole.value;
+        const messages = document.querySelectorAll('.msg');
+        
+        clearBtn.style.display = keyword || role ? 'block' : 'none';
+        
+        let matchCount = 0;
+        messages.forEach((msg) => {
+            const isUser = msg.classList.contains('user');
+            const isAgent = msg.classList.contains('agent');
+            const content = msg.textContent.toLowerCase();
+            
+            let roleMatch = true;
+            if (role === 'user' && !isUser) roleMatch = false;
+            if (role === 'agent' && !isAgent) roleMatch = false;
+            
+            let textMatch = true;
+            if (keyword && !content.includes(keyword)) textMatch = false;
+            
+            if (roleMatch && textMatch) {
+                msg.style.display = '';
+                if (keyword) {
+                    msg.classList.add('highlight');
+                } else {
+                    msg.classList.remove('highlight');
+                }
+                matchCount++;
+            } else {
+                msg.style.display = 'none';
+                msg.classList.remove('highlight');
+            }
+        });
+        
+        if (keyword && matchCount === 0) {
+            const chatBox = $('chatBox');
+            if (chatBox && chatBox.querySelectorAll('.msg[style="display: none;"]').length === messages.length) {
+                toast(`未找到包含 "${searchInput.value}" 的消息`, 'info');
+            }
+        }
+    }
+
+    searchInput.addEventListener('input', applySearch);
+    filterRole.addEventListener('change', applySearch);
+    
+    clearBtn.addEventListener('click', () => {
+        searchInput.value = '';
+        filterRole.value = '';
+        applySearch();
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    initChatSearch();
+});
+
 // ===== END OF FILE =====

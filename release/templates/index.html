@@ -114,6 +114,15 @@
                 <div class="agent-card-selector" id="agentCardSelector" style="display:none;"></div>
                 <button class="btn-manage" id="manageBtn" title="管理智能体">⚙️</button>
             </div>
+            <div class="chat-search-bar" id="chatSearchBar">
+                <input type="text" id="chatSearchInput" class="chat-search-input" placeholder="🔍 搜索聊天记录..." autocomplete="off">
+                <select id="chatFilterRole" class="chat-filter-role">
+                    <option value="">全部角色</option>
+                    <option value="user">🧑 我</option>
+                    <option value="agent">🤖 AI</option>
+                </select>
+                <button class="btn-sm chat-search-clear" id="chatSearchClear" style="display:none;">✕</button>
+            </div>
             <div class="chat-box" id="chatBox"></div>
             <div class="input-area">
                 <div class="slash-menu" id="slashMenu"></div>
