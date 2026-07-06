@@ -369,6 +369,55 @@ async function logout() {
     showAuthScreen();
 }
 
+function toggleFocusMode() {
+    const main = $('mainScreen');
+    if (!main) return;
+    const isFocus = main.classList.toggle('focus-mode');
+    if (isFocus) {
+        const hint = document.createElement('div');
+        hint.className = 'focus-exit-hint';
+        hint.textContent = '🎭 专注模式 · 按 Esc 退出';
+        hint.addEventListener('click', toggleFocusMode);
+        main.appendChild(hint);
+        toast('已进入专注模式，按 Esc 退出', 'info');
+    } else {
+        const hint = document.querySelector('.focus-exit-hint');
+        if (hint) hint.remove();
+    }
+}
+
+document.addEventListener('keydown', e => {
+    const main = $('mainScreen');
+    if (main && main.classList.contains('focus-mode') && e.key === 'Escape') {
+        toggleFocusMode();
+    }
+});
+
+function togglePreview() {
+    const panel = $('previewPanel');
+    const content = $('previewContent');
+    if (!panel || !content) return;
+    const isVisible = panel.style.display !== 'none';
+    if (!isVisible) {
+        const text = messageInput.value;
+        content.innerHTML = text ? renderMarkdown(text) : '<span style="color:var(--text-dim);">输入内容后预览效果</span>';
+        panel.style.display = 'block';
+        setTimeout(highlightCode, 0);
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+messageInput.addEventListener('input', () => {
+    const panel = $('previewPanel');
+    const content = $('previewContent');
+    if (panel && content && panel.style.display !== 'none') {
+        const text = messageInput.value;
+        content.innerHTML = text ? renderMarkdown(text) : '<span style="color:var(--text-dim);">输入内容后预览效果</span>';
+        setTimeout(highlightCode, 0);
+    }
+});
+
 async function changePassword() {
     const oldPwd = $('oldPassword').value.trim();
     const newPwd = $('newPassword').value.trim();
@@ -509,6 +558,9 @@ function setupEventListeners() {
     $('loginBtn')?.addEventListener('click', login);
     $('registerBtn')?.addEventListener('click', register);
     $('logoutBtn')?.addEventListener('click', logout);
+    $('focusModeBtn')?.addEventListener('click', toggleFocusMode);
+    $('previewBtn')?.addEventListener('click', togglePreview);
+    $('previewCloseBtn')?.addEventListener('click', togglePreview);
 
     // Password visibility toggles
     document.querySelectorAll('.pwd-toggle').forEach(btn => {
@@ -731,6 +783,8 @@ async function sendMessage() {
     const agentId = agentSelect.value;
     messageInput.value = '';
     messageInput.style.height = 'auto';
+    const panel = $('previewPanel');
+    if (panel) panel.style.display = 'none';
     appendMessage(msg, 'user');
     sendBtn.disabled = true;
     sendBtn.textContent = '⏳ 思考中...';
@@ -809,6 +863,7 @@ function appendMessage(text, role, name) {
     div.appendChild(content);
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
+    setTimeout(highlightCode, 0);
     return div;
 }
 
@@ -1339,7 +1394,7 @@ function renderMarkdown(text) {
             marked.setOptions({ breaks: true, gfm: true });
             const html = marked.parse(raw);
             if (typeof DOMPurify !== 'undefined') {
-                return DOMPurify.sanitize(html);
+                return DOMPurify.sanitize(html, { ADD_TAGS: ['pre', 'code'], ADD_ATTR: ['class'] });
             }
             return escapeHtml(html);
         }
@@ -1349,6 +1404,12 @@ function renderMarkdown(text) {
     }
     // Fallback: basic HTML escape
     return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+}
+
+function highlightCode() {
+    if (typeof hljs !== 'undefined') {
+        hljs.highlightAll();
+    }
 }
 
 // Lightweight plain-text cleanup for status values and short snippets (NOT for story text)
@@ -1362,6 +1423,7 @@ function cleanText(t) {
 function renderStory(text) {
     storyText.innerHTML = renderMarkdown(text);
     storyBox.scrollTop = 0;
+    setTimeout(highlightCode, 0);
 }
 
 // --- Personal Panel Rendering ---

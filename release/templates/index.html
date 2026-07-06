@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>云雾酒馆 - 聊天 · 跑团</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 </head>
 <body>
     <div class="tavern-bg"></div>
@@ -91,6 +92,7 @@
                     <button class="btn-sm" id="dashboardBtn" style="display:none;">📊 大屏</button>
                     <button class="btn-sm admin-btn" id="adminBtn" style="display:none;">⚙️ 管理</button>
                     <button class="btn-sm" id="changePwdBtn" title="修改密码">🔑</button>
+                    <button class="btn-sm" id="focusModeBtn" title="专注模式（Esc退出）">🎭</button>
                     <a href="/feedback" class="btn-sm feedback-nav-btn" title="用户反馈">📋</a>
                     <button class="btn-sm logout-btn" id="logoutBtn">🚪 退出</button>
                 </div>
@@ -109,8 +111,16 @@
             <div class="chat-box" id="chatBox"></div>
             <div class="input-area">
                 <div class="slash-menu" id="slashMenu"></div>
+                <div class="preview-panel" id="previewPanel" style="display:none;">
+                    <div class="preview-header">
+                        <span>👁 预览</span>
+                        <button class="preview-close" id="previewCloseBtn">✕</button>
+                    </div>
+                    <div class="preview-content" id="previewContent"></div>
+                </div>
                 <div class="input-wrapper">
                     <textarea id="messageInput" placeholder="对掌柜说说你的心事... 输入 / 查看命令（Shift+Enter 换行）" rows="1" autofocus></textarea>
+                    <button id="previewBtn" title="预览Markdown">👁</button>
                     <button id="sendBtn"><span class="btn-icon">🍺</span> 来一杯</button>
                 </div>
                 <div class="hint" id="agentHint">选择一位角色聊聊</div>
@@ -617,6 +627,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" integrity="sha256-Pn59f+s+XVjLbIBPaKtcJMx+XrYnD9bly7kSRzkhfQw=" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" integrity="sha256-jrQbZYgx+rF1+tm80A/LLYTg7TolpVBT1OzUREuLQ6A=" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="/static/script.js"></script>
 </body>
 </html>
