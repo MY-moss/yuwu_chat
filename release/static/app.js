@@ -2,7 +2,7 @@
 // 文件: app.js | 职责: 入口模块 — 初始化、模式切换、全局事件
 // ============================================================
 import { state } from './state.js';
-import { $, toast, hideLoading } from './utils.js';
+import { $, toast, hideLoading, typewriter, initCounters } from './utils.js';
 import { fetchCsrfToken } from './api.js';
 import { checkAuth, loadVersion, initAuth } from './auth.js';
 import { initChat } from './chat.js';
@@ -134,8 +134,8 @@ function initGlobalEvents() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    fetchCsrfToken();
+document.addEventListener('DOMContentLoaded', async () => {
+    await fetchCsrfToken();
     checkAuth();
     loadVersion();
 
@@ -148,6 +148,99 @@ document.addEventListener('DOMContentLoaded', () => {
     initPersonalApi();
     initExchange();
     initGlobalEvents();
+    initCounters();
+
+    // 认证屏副标题打字机效果
+    const authSub = $('authSub');
+    if (authSub) {
+        typewriter(authSub, '欢迎回来，旅人', { speed: 80, delay: 400, cursor: true });
+    }
+
+    // 认证屏光标聚光灯效果（源自方案一）
+    const cleanupSpotlight = initSpotlight();
+    window.addEventListener('beforeunload', cleanupSpotlight);
+
+    // 跑马灯无缝循环（源自方案六）
+    initMarquee();
 });
+
+/**
+ * 光标聚光灯：鼠标在认证屏移动时，光标周围柔和揭示暖色纹理层
+ * 使用 CSS mask-image + 变量驱动，RAF 平滑跟随
+ * 实现方式：CSS 变量驱动（优于原始 Canvas toDataURL 方案，性能更好）
+ * 触屏设备通过 (hover: none) 媒体查询检测，直接降级为静态背景
+ */
+function initSpotlight() {
+    const reveal = $('spotlightReveal');
+    const authScreen = $('authScreen');
+    if (!reveal || !authScreen) return () => {};
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return () => {};
+    if (window.matchMedia('(hover: none)').matches) return () => {}; // 触屏设备无 mousemove
+
+    const SMOOTH = 0.12;
+    const mouse = { x: -999, y: -999 };
+    const smooth = { x: -999, y: -999 };
+    let rafId = null;
+    let active = false;
+
+    const onMove = (e) => {
+        const rect = authScreen.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+        if (!active) {
+            active = true;
+            reveal.classList.add('active');
+        }
+        if (!rafId) rafId = requestAnimationFrame(loop);
+    };
+
+    const onLeave = () => {
+        active = false;
+        reveal.classList.remove('active');
+        mouse.x = -999;
+        mouse.y = -999;
+        smooth.x = -999;
+        smooth.y = -999;
+        if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    };
+
+    const loop = () => {
+        smooth.x += (mouse.x - smooth.x) * SMOOTH;
+        smooth.y += (mouse.y - smooth.y) * SMOOTH;
+        reveal.style.setProperty('--mx', smooth.x + 'px');
+        reveal.style.setProperty('--my', smooth.y + 'px');
+        if (Math.abs(mouse.x - smooth.x) > 0.5 || Math.abs(mouse.y - smooth.y) > 0.5) {
+            rafId = requestAnimationFrame(loop);
+        } else {
+            rafId = null;
+        }
+    };
+
+    authScreen.addEventListener('mousemove', onMove);
+    authScreen.addEventListener('mouseleave', onLeave);
+
+    return () => {
+        authScreen.removeEventListener('mousemove', onMove);
+        authScreen.removeEventListener('mouseleave', onLeave);
+        if (rafId) cancelAnimationFrame(rafId);
+    };
+}
+
+/**
+ * 跑马灯无缝循环：复制 .marquee-track 内容，实现无缝滚动
+ * 配合 .animate-marquee-left / .animate-marquee-right 使用
+ * 克隆内容设置 aria-hidden="true" 避免屏幕阅读器重复朗读
+ * dataset.marqueeInited 防止重复初始化（模式切换等场景）
+ */
+function initMarquee() {
+    document.querySelectorAll('.marquee-track').forEach(track => {
+        if (track.dataset.marqueeInited) return;
+        track.dataset.marqueeInited = '1';
+        const clone = track.cloneNode(true);
+        clone.setAttribute('aria-hidden', 'true');
+        track.parentNode.appendChild(clone);
+    });
+}
 
 // ===== END OF FILE =====

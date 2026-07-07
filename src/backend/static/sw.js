@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tavern-cache-v2.2.0.4';
+const CACHE_NAME = 'tavern-cache-v2.2.0.8';
 const CACHE_ASSETS = [
     // [AUDIT-Q28] 未缓存主 ES Module 文件（如 app.js/chat.js/rpg.js），无离线能力
     '/',

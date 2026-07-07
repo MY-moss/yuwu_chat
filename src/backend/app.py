@@ -310,17 +310,17 @@ def create_app():
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Content-Security-Policy'] = (
-            "default-src 'self'; "
-            "script-src 'self' cdn.jsdelivr.net 'unsafe-inline' 'strict-dynamic'; "
-            "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; "
-            "connect-src 'self'; "
-            "font-src 'self'; "
-            "frame-ancestors 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self'"
-        )
+        # response.headers['Content-Security-Policy'] = (
+        #     "default-src 'self'; "
+        #     "script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
+        #     "style-src 'self' 'unsafe-inline' cdnjs.cloudflare.com; "
+        #     "img-src 'self' data:; "
+        #     "connect-src 'self'; "
+        #     "font-src 'self'; "
+        #     "frame-ancestors 'none'; "
+        #     "base-uri 'self'; "
+        #     "form-action 'self'"
+        # )
         return response
 
     # ===== 应用级路由 =====
@@ -346,6 +346,13 @@ def create_app():
         if request.path.startswith('/api/'):
             return jsonify({"error": "服务器内部错误"}), 500
         return render_template('error.html', code=500, message="服务器内部错误"), 500
+
+    # ===== 启动自检 =====
+    rules = [r.rule for r in app.url_map.iter_rules() if 'csrf' in r.rule]
+    if not rules:
+        logger.error("ROUTE MISSING: /api/csrf-token 未注册！")
+    else:
+        logger.info(f"路由自检通过: {rules[0]} 已注册")
 
     return app
 

@@ -123,4 +123,146 @@ export function getSelectedModel() {
     return sel ? sel.value : 'mimo-v2.5-free';
 }
 
+// ============================================================
+// UI 美化增强：数字滚动动画 + 打字机效果（源自方案五）
+// 动画工具函数放在 utils.js，renderer.js 负责渲染调用，保持模块职责清晰
+// 关键设计决策：
+// - requestAnimationFrame + easeOutCubic 缓动（AnimatedCounter）
+// - setTimeout 链式而非 setInterval，避免标签页失焦后堆积（Typewriter）
+// - 中文按字切分：[...text] 展开 Unicode 码点
+// - 所有动效均尊重 prefers-reduced-motion，降级为直接显示终值
+// ============================================================
+
+const _prefersReducedMotion = () =>
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function _easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+}
+
+/**
+ * 数字滚动动画：从 0 平滑增长到目标值
+ * @param {HTMLElement} el - 目标元素
+ * @param {number} target - 目标数值
+ * @param {object} [opts] - { duration=1.5s, prefix='', suffix='', decimals=0, useComma=false }
+ */
+export function animateCounter(el, target, opts = {}) {
+    if (!el) return;
+    const { duration = 1500, prefix = '', suffix = '', decimals = 0, useComma = false } = opts;
+
+    const format = (val) => {
+        const fixed = Number(val).toFixed(decimals);
+        const display = useComma ? Number(fixed).toLocaleString('en-US', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals
+        }) : fixed;
+        return prefix + display + suffix;
+    };
+
+    if (_prefersReducedMotion()) {
+        el.textContent = format(target);
+        return;
+    }
+
+    const start = performance.now();
+    const step = (now) => {
+        const elapsed = now - start;
+        const progress = Math.min(elapsed / duration, 1);
+        const eased = _easeOutCubic(progress);
+        el.textContent = format(target * eased);
+        if (progress < 1) {
+            requestAnimationFrame(step);
+        } else {
+            el.textContent = format(target);
+        }
+    };
+    requestAnimationFrame(step);
+}
+
+/**
+ * 自动扫描带 data-count 属性的元素，滚动进入视口时触发数字动画
+ * 用法: <span data-count="500" data-suffix="K+">0</span>
+ */
+export function initCounters() {
+    const els = document.querySelectorAll('[data-count]');
+    if (!els.length) return;
+
+    if (_prefersReducedMotion() || !('IntersectionObserver' in window)) {
+        els.forEach(el => {
+            const target = parseFloat(el.dataset.count) || 0;
+            animateCounter(el, target, {
+                suffix: el.dataset.suffix || '',
+                prefix: el.dataset.prefix || '',
+                decimals: parseInt(el.dataset.decimals) || 0,
+                useComma: el.dataset.comma === 'true'
+            });
+        });
+        return;
+    }
+
+    const observer = new IntersectionObserver((entries, obs) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const el = entry.target;
+                const target = parseFloat(el.dataset.count) || 0;
+                animateCounter(el, target, {
+                    suffix: el.dataset.suffix || '',
+                    prefix: el.dataset.prefix || '',
+                    decimals: parseInt(el.dataset.decimals) || 0,
+                    useComma: el.dataset.comma === 'true'
+                });
+                obs.unobserve(el);
+            }
+        });
+    }, { threshold: 0.5 });
+
+    els.forEach(el => observer.observe(el));
+}
+
+/**
+ * 打字机效果：逐字符揭示文本
+ * @param {HTMLElement} el - 目标元素
+ * @param {string} text - 要显示的文本
+ * @param {object} [opts] - { speed=50ms, delay=0, cursor=true, onComplete }
+ * @returns {Function} cancel 函数，调用可中断动画
+ */
+export function typewriter(el, text, opts = {}) {
+    if (!el) return () => {};
+    const { speed = 50, delay = 0, cursor = false, onComplete = null } = opts;
+
+    if (_prefersReducedMotion()) {
+        el.textContent = text;
+        if (onComplete) onComplete();
+        return () => {};
+    }
+
+    const chars = [...text];
+    let index = 0;
+    let cancelled = false;
+    let timerId = null;
+
+    el.textContent = '';
+    if (cursor) el.classList.add('tw-cursor');
+
+    const reveal = () => {
+        if (cancelled) return;
+        if (index < chars.length) {
+            el.textContent += chars[index];
+            index++;
+            timerId = setTimeout(reveal, speed);
+        } else {
+            if (cursor) el.classList.remove('tw-cursor');
+            if (onComplete) onComplete();
+        }
+    };
+
+    timerId = setTimeout(reveal, delay);
+
+    return () => {
+        cancelled = true;
+        if (timerId) clearTimeout(timerId);
+        if (cursor) el.classList.remove('tw-cursor');
+    };
+}
+
 // ===== END OF FILE =====

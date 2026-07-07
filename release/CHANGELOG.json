@@ -1,6 +1,30 @@
 {
     "history": [
         {
+            "version": "v2.2.0.8",
+            "old_version": "v2.2.0.7",
+            "type": "patch",
+            "type_desc": "Bug修复",
+            "description": "修复两个问题：1) 技能鉴定触发频率过高（修改rpg_format.txt，限定仅在关键情况和重大节点出现，如生死攸关抉择、关键剧情节点、高风险行动、重要资源争夺，且每5-8轮最多1次）；2) 游戏过程中回弹到登录界面（在api.js中添加CSRF token失效自动重试机制、5分钟心跳保活会话、优化403/401错误处理逻辑；auth.py注册接口增加csrf_token返回）",
+            "timestamp": "2026-07-08 03:30:00"
+        },
+        {
+            "version": "v2.2.0.7",
+            "old_version": "v2.2.0.6",
+            "type": "patch",
+            "type_desc": "Bug修复",
+            "description": "修复管理员登录失败问题：auth.py 中 session.cycle() 调用导致 AttributeError（Flask默认 SecureCookieSession 无 cycle() 方法），替换为自定义 _cycle_session() 函数（保存session数据→clear→重新写入，实现session密钥轮换）；同步修复 release/app.py 单体文件中的相同问题；重置admin密码为新随机值",
+            "timestamp": "2026-07-07 18:00:00"
+        },
+        {
+            "version": "v2.2.0.6",
+            "old_version": "v2.2.0.5",
+            "type": "patch",
+            "type_desc": "UI美化增强",
+            "description": "从ui-美化.md 6方案中筛选4个移植实施：方案B(噪点叠加+跑马灯边缘渐隐CSS+智能体卡片选择器边缘遮罩)；方案A(液态玻璃拟态：.header/.modal/.auth-box增加backdrop-filter+::before/::after金色渐变玻璃边框，背景半透明化)；方案C(utils.js新增animateCounter/initCounters/typewriter工具函数，认证屏副标题打字机效果，dashboard.html统计数字滚动动画)；方案D(认证屏光标聚光灯：CSS mask-image radial-gradient+RAF平滑跟随，触屏/reduced-motion降级)；style.css新增区块12(UI美化增强)；所有效果提供@supports/prefers-reduced-motion降级",
+            "timestamp": "2026-07-08 01:30:00"
+        },
+        {
             "version": "v2.2.0.5",
             "old_version": "v2.2.0.4",
             "type": "patch",

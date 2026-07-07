@@ -155,6 +155,10 @@
     </div>
     
     <!-- [AUDIT-N102] 内联脚本块约 160 行，如未来启用 CSP 则被阻止执行 -->
+    <script type="module">
+        import { animateCounter } from '/static/utils.js';
+        window.animateCounter = animateCounter;
+    </script>
     <script>
         function escapeHtml(s) {
             if (s == null) return '';
@@ -191,10 +195,10 @@
         }
         
         function updateDashboard(stats) {
-            document.getElementById('onlineCount').textContent = stats.online_users || 0;
-            document.getElementById('totalCalls').textContent = stats.total_calls || 0;
-            document.getElementById('totalTokens').textContent = stats.total_tokens || 0;
-            document.getElementById('activeSessions').textContent = stats.active_sessions || 0;
+            animateCounter(document.getElementById('onlineCount'), stats.online_users || 0, { duration: 800 });
+            animateCounter(document.getElementById('totalCalls'), stats.total_calls || 0, { duration: 1200 });
+            animateCounter(document.getElementById('totalTokens'), stats.total_tokens || 0, { duration: 1500 });
+            animateCounter(document.getElementById('activeSessions'), stats.active_sessions || 0, { duration: 800 });
             
             updateOnlineUsers(stats.online_users_list || []);
             updateModelRanking(stats.models || {});
@@ -204,8 +208,8 @@
         function updateUserStats(users) {
             const total = users.length || 0;
             const totalCredits = users.reduce((sum, u) => sum + (u.credits || 0), 0);
-            document.getElementById('totalUsers').textContent = total;
-            document.getElementById('totalCredits').textContent = totalCredits;
+            animateCounter(document.getElementById('totalUsers'), total, { duration: 1200, useComma: true });
+            animateCounter(document.getElementById('totalCredits'), totalCredits, { duration: 1500, useComma: true });
         }
         
         function updateOnlineUsers(list) {

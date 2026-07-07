@@ -276,16 +276,16 @@ def add_security_and_cache_headers(response):
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Content-Security-Policy'] = (
-        "default-src 'self'; "
-        "script-src 'self' cdn.jsdelivr.net 'unsafe-inline' 'strict-dynamic'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
-        "connect-src 'self'; "
-        "font-src 'self'; "
-        "frame-ancestors 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'"
-    )
+            "default-src 'self'; "
+            "script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline' cdnjs.cloudflare.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
     return response
 
 db = SQLAlchemy(app)
@@ -904,7 +904,6 @@ def check_rate_limit(action, key, max_attempts=5, window=60):
         RateLimitEntry.created_at >= cutoff
     ).count()
     if recent >= max_attempts:
-        db.session.commit()
         return False
     db.session.add(RateLimitEntry(action=action, key=key))
     db.session.commit()
@@ -920,6 +919,14 @@ def load_user(user_id):
     if user and '_user_token_version' in session and session['_user_token_version'] != (user.token_version or 1):
         return None
     return user
+
+
+def _cycle_session(session):
+    old_data = dict(session)
+    session.clear()
+    for key, value in old_data.items():
+        session[key] = value
+    session.modified = True
 
 
 def admin_required(f):
@@ -1293,7 +1300,7 @@ def register():
         return jsonify({"error": "注册失败，请重试"}), 500
 
     login_user(user)
-    session.cycle()
+    _cycle_session(session)
     session.permanent = True
     session['_user_token_version'] = user.token_version or 1
     return jsonify({"message": "注册成功", "user": user.to_dict()}), 201
@@ -1335,7 +1342,7 @@ def login():
         return jsonify({"error": "用户名或密码错误"}), 401
 
     login_user(user)
-    session.cycle()
+    _cycle_session(session)
     session.permanent = True
     session['_user_token_version'] = user.token_version or 1
     session['_csrf_token'] = secrets.token_hex(16)
@@ -3429,6 +3436,13 @@ if __name__ == "__main__":
         if request.path.startswith('/api/'):
             return jsonify({"error": "服务器内部错误"}), 500
         return render_template('error.html', code=500, message="服务器内部错误"), 500
+
+    # ===== 启动自检 =====
+    rules = [r.rule for r in app.url_map.iter_rules() if 'csrf' in r.rule]
+    if not rules:
+        app.logger.error("ROUTE MISSING: /api/csrf-token 未注册！")
+    else:
+        app.logger.info(f"路由自检通过: {rules[0]} 已注册")
 
     port = int(os.getenv("PORT", "9000"))
     app.run(debug=False, host=host, port=port)

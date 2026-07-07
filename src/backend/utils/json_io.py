@@ -297,7 +297,6 @@ def check_rate_limit(action, key, max_attempts=5, window=60):
         RateLimitEntry.created_at >= cutoff
     ).count()
     if recent >= max_attempts:
-        db.session.commit()
         return False
     db.session.add(RateLimitEntry(action=action, key=key))
     db.session.commit()

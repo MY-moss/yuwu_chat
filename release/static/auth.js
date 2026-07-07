@@ -3,7 +3,7 @@
 // ============================================================
 import { state } from './state.js';
 import { $, toast, showAuthScreen, updateUserInfo, escapeHtml } from './utils.js';
-import { api, setCsrfToken } from './api.js';
+import { api, setCsrfToken, startSessionHeartbeat, stopSessionHeartbeat } from './api.js';
 import { renderMarkdown, highlightCode } from './renderer.js';
 import { populateModels, loadAgents } from './chat.js';
 import { loadWorlds } from './rpg.js';
@@ -75,6 +75,7 @@ async function login() {
         }
         showMainScreen();
         showAuthError('');
+        startSessionHeartbeat();
     } catch (e) {
         showAuthError('登录失败，请重试');
         console.error('[ERROR] login:', e);
@@ -127,8 +128,10 @@ async function register() {
         }
 
         state.currentUser = data.user;
+        if (data.csrf_token) setCsrfToken(data.csrf_token);
         showMainScreen();
         showAuthError('');
+        startSessionHeartbeat();
     } catch (e) {
         showAuthError('注册失败，请重试');
         console.error('[ERROR] register:', e);
@@ -145,6 +148,7 @@ export async function logout() {
         console.error('[ERROR] logout:', e);
         toast('退出登录失败', 'warn');
     }
+    stopSessionHeartbeat();
     state.currentUser = null;
     state.rpgState = { sessionId: null, world: null, playerName: '', storyline: [], sections: null };
     state.currentMode = 'chat';

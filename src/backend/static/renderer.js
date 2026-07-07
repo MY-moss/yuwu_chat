@@ -1,7 +1,8 @@
 // ============================================================
 // 文件: renderer.js | 职责: Markdown渲染、代码高亮、文本清理、状态面板渲染
+// UI 增强：renderEmptyChat() — 聊天空状态打字机提示（源自方案五）
 // ============================================================
-import { $, toast, escapeHtml } from './utils.js';
+import { $, toast, escapeHtml, typewriter } from './utils.js';
 
 const mdCache = new Map();
 
@@ -213,6 +214,26 @@ export function parseStatusValue(val) {
         const rendVal = hasMarkdownFormatting(value) ? renderMarkdown(value) : escapeHtml(value);
         return '<div class="status-item"><span class="status-label">'+escapeHtml(label)+'</span><span class="'+cls+' md-inline">'+rendVal+'</span></div>';
     }).join('');
+}
+
+/**
+ * 聊天空状态打字机提示（源自方案五）
+ * 在聊天框空置时显示逐字浮现的欢迎/引导文字
+ * @param {HTMLElement} container - 聊天框容器
+ * @param {string} text - 提示文本，默认诗意引导语
+ */
+export function renderEmptyChat(container, text) {
+    if (!container) return () => {};
+    const existing = container.querySelector('.empty-typewriter');
+    if (existing) existing.remove();
+
+    const el = document.createElement('div');
+    el.className = 'empty-typewriter';
+    el.style.cssText = 'text-align:center;padding:60px 20px;color:var(--text-dim);font-size:15px;letter-spacing:1px;line-height:1.8;';
+    container.appendChild(el);
+
+    const msg = text || '夜色渐浓，酒馆的灯笼已经点亮……\n选一位旅伴，聊聊你的故事吧。';
+    return typewriter(el, msg, { speed: 60, delay: 300 });
 }
 
 // ===== END OF FILE =====

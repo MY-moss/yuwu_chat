@@ -1,5 +1,5 @@
 /* ============================================================
-   文件: style.css | 职责: 主样式表 | 区块数: 9
+   文件: style.css | 职责: 主样式表 | 区块数: 12
    ============================================================ */
 
 /* ============================================================
@@ -70,6 +70,7 @@ body {
     padding: 20px;
     background: linear-gradient(135deg, #1a1410 0%, #2a2018 50%, #1a1410 100%);
     position: relative;
+    z-index: 10;
     overflow: hidden;
 }
 .auth-screen::before {
@@ -88,19 +89,18 @@ body {
     50% { opacity: 1; transform: scale(1.1); }
 }
 .auth-box {
-    background: linear-gradient(145deg, rgba(58,46,36,0.98), rgba(42,32,24,0.99));
+    background: linear-gradient(145deg, rgba(58,46,36,0.92), rgba(42,32,24,0.94));
     border: 1px solid rgba(212,168,75,0.3);
     border-radius: 20px;
     padding: 48px 40px;
     width: 100%;
     max-width: 440px;
     text-align: center;
-    box-shadow: 0 25px 80px rgba(0,0,0,0.6), 
+    box-shadow: 0 25px 80px rgba(0,0,0,0.6),
                 0 0 60px rgba(212,168,75,0.1),
                 inset 0 1px 0 rgba(255,255,255,0.05);
     position: relative;
     z-index: 1;
-    backdrop-filter: blur(10px);
 }
 .auth-box::before {
     content: '';
@@ -111,6 +111,22 @@ body {
     height: 3px;
     background: linear-gradient(90deg, transparent, var(--gold), var(--gold-dim), var(--gold), transparent);
     border-radius: 20px 20px 0 0;
+}
+.auth-box::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(180deg,
+        rgba(212,168,75,0.4) 0%, rgba(212,168,75,0.12) 20%,
+        rgba(212,168,75,0) 40%, rgba(212,168,75,0) 60%,
+        rgba(212,168,75,0.12) 80%, rgba(212,168,75,0.4) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
 }
 .auth-title {
     font-family: 'Noto Serif SC', 'SimSun', 'Noto Serif CJK SC', serif;
@@ -230,7 +246,7 @@ body {
     gap: 10px;
     margin-bottom: 16px;
     padding: 12px 24px;
-    background: linear-gradient(135deg, var(--bg-card), var(--bg-panel));
+    background: linear-gradient(135deg, rgba(58,46,36,0.72), rgba(42,32,24,0.78));
     border: 1px solid var(--border);
     border-radius: 14px;
     box-shadow: 0 4px 24px rgba(0,0,0,0.3);
@@ -2047,7 +2063,7 @@ body {
 @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 .modal-overlay.show { display: flex; }
 .modal {
-    background: var(--bg-panel);
+    background: linear-gradient(145deg, rgba(58,46,36,0.92), rgba(42,32,24,0.95));
     border: 1px solid var(--border);
     border-radius: 14px;
     width: 90%;
@@ -2057,6 +2073,25 @@ body {
     flex-direction: column;
     box-shadow: 0 20px 60px rgba(0,0,0,0.5);
     animation: slideUp 0.25s ease;
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    position: relative;
+}
+.modal::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(180deg,
+        rgba(212,168,75,0.3) 0%, rgba(212,168,75,0.1) 20%,
+        rgba(212,168,75,0) 40%, rgba(212,168,75,0) 60%,
+        rgba(212,168,75,0.1) 80%, rgba(212,168,75,0.3) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
 }
 .modal-wide { max-width: 700px; }
 .modal-small { max-width: 400px; }
@@ -3116,5 +3151,178 @@ body {
     backdrop-filter: blur(8px);
 }
 .focus-mode .focus-exit-hint:hover { opacity: 1; }
+
+/* ============================================================
+   区块 12 · UI 美化增强（液态玻璃 / 噪点 / 跑马灯 / 聚光灯）
+   ============================================================ */
+
+/* ---- 12.1 噪点叠加（源自方案六）---- */
+/* 在背景层叠加 SVG feTurbulence 噪点，增加胶片质感
+   注：feTurbulence 在部分旧 WebView 中可能不渲染，.noise-overlay::after 和 .tavern-bg::after
+   均受 @supports (mix-blend-mode: soft-light) 保护，不支持时自动隐藏 */
+.noise-overlay { position: relative; }
+.noise-overlay::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.22;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-size: 240px 240px;
+    z-index: 0;
+}
+/* 直接增强全局背景 */
+.tavern-bg::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.18;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-size: 240px 240px;
+}
+@supports not (mix-blend-mode: soft-light) {
+    .tavern-bg::after, .noise-overlay::after { display: none; }
+}
+
+/* ---- 12.2 跑马灯动画（源自方案六）---- */
+@keyframes marquee-left { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes marquee-right { from { transform: translateX(-50%); } to { transform: translateX(0); } }
+.animate-marquee-left { animation: marquee-left 22s linear infinite; }
+.animate-marquee-right { animation: marquee-right 26s linear infinite; }
+.marquee-track {
+    display: flex;
+    gap: 12px;
+    width: max-content;
+}
+/* 边缘渐隐遮罩（应用于横向滚动容器）*/
+.edge-fade-mask {
+    -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+    mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+    .animate-marquee-left, .animate-marquee-right { animation: none; }
+}
+/* 智能体卡片选择器增加边缘渐隐 */
+.agent-card-selector {
+    -webkit-mask-image: linear-gradient(to right, transparent, black 4%, black 96%, transparent);
+    mask-image: linear-gradient(to right, transparent, black 4%, black 96%, transparent);
+}
+
+/* ---- 12.3 液态玻璃拟态（源自方案二）---- */
+/* CSS 变量体系：--glass-r/g/b 控制颜色，--glass-a1 两端透明度，--glass-a2 过渡透明度
+   默认白色 (255,255,255)，通过 .glass-gold 覆盖为金色 (212,168,75)
+   同屏活跃玻璃层建议 ≤5 层（低端设备 backdrop-filter 有性能开销）
+   ::before 使用 mask-composite: exclude 实现渐变边框，PyInstaller WebView 需验证兼容性 */
+.liquid-glass {
+    background: rgba(255, 255, 255, 0.01);
+    background-blend-mode: luminosity;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    border: none;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+.liquid-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(180deg,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),var(--glass-a1,0.45)) 0%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),var(--glass-a2,0.15)) 20%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),0) 40%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),0) 60%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),var(--glass-a2,0.15)) 80%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),var(--glass-a1,0.45)) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+}
+.liquid-glass-strong {
+    background: rgba(255, 255, 255, 0.02);
+    background-blend-mode: luminosity;
+    -webkit-backdrop-filter: blur(50px);
+    backdrop-filter: blur(50px);
+    border: none;
+    box-shadow: 4px 4px 4px rgba(0,0,0,0.05), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+    position: relative;
+    overflow: hidden;
+}
+.liquid-glass-strong::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.4px;
+    background: linear-gradient(180deg,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),var(--glass-a1,0.5)) 0%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),var(--glass-a2,0.2)) 20%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),0) 40%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),0) 60%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),var(--glass-a2,0.2)) 80%,
+        rgba(var(--glass-r,255),var(--glass-g,255),var(--glass-b,255),var(--glass-a1,0.5)) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+}
+/* 金色主题：覆盖液体玻璃边框渐变为酒馆金色 */
+.glass-gold { --glass-r: 212; --glass-g: 168; --glass-b: 75; }
+@supports not ((-webkit-backdrop-filter: blur(4px)) or (backdrop-filter: blur(4px))) {
+    .liquid-glass, .liquid-glass-strong {
+        background: rgba(42, 32, 24, 0.85);
+        border: 1px solid var(--border);
+    }
+}
+
+/* ---- 12.4 光标聚光灯（源自方案一）---- */
+/* 使用 CSS mask-image + 变量驱动，避免 Canvas toDataURL 性能开销
+   触屏设备通过 (hover: none) 媒体查询自动禁用（app.js 中处理），降级为直接显示静态纹理 */
+.spotlight-reveal {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    background:
+        radial-gradient(circle at 30% 40%, rgba(212,168,75,0.18) 0%, transparent 40%),
+        radial-gradient(circle at 70% 65%, rgba(231,76,60,0.12) 0%, transparent 35%),
+        radial-gradient(circle at 50% 50%, rgba(90,74,58,0.3) 0%, transparent 60%),
+        linear-gradient(135deg, #3a2a1a 0%, #2a1a10 50%, #1a1410 100%);
+    -webkit-mask-image: radial-gradient(circle 240px at var(--mx, -999px) var(--my, -999px),
+        rgba(255,255,255,1) 0%, rgba(255,255,255,0.7) 40%, transparent 75%);
+    mask-image: radial-gradient(circle 240px at var(--mx, -999px) var(--my, -999px),
+        rgba(255,255,255,1) 0%, rgba(255,255,255,0.7) 40%, transparent 75%);
+}
+.spotlight-reveal.active { opacity: 1; }
+.spotlight-canvas { display: none; }
+@media (prefers-reduced-motion: reduce) {
+    .spotlight-reveal { display: none; }
+}
+
+/* ---- 12.5 打字机光标（源自方案五）---- */
+.tw-cursor::after {
+    content: '|';
+    color: var(--gold);
+    animation: twBlink 0.8s step-end infinite;
+    margin-left: 2px;
+    font-weight: 300;
+}
+@keyframes twBlink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tw-cursor::after { animation: none; opacity: 0.5; }
+}
 
 /* ===== END OF FILE ===== */
