@@ -1,6 +1,22 @@
 {
     "history": [
         {
+            "version": "v2.2.0.5",
+            "old_version": "v2.2.0.4",
+            "type": "patch",
+            "type_desc": "拆分后清理与修复",
+            "description": "ESModule拆分后清理：修复sw.js缓存列表（移除已删除的script.js和已变为ESModule的utils.js，升级缓存版本v2.2→v2.2.0.4强制刷新）；删除旧单体script.js（src/release各一份）和已实施完成的拆分方案文档；修复feedback.html/dashboard.html/spectate.html加载utils.js为普通脚本的错误（改为内联escapeHtml/formatDate）；更新优化建议文档标记T01/N02为已完成",
+            "timestamp": "2026-07-07 21:30:00"
+        },
+        {
+            "version": "v2.2.0.4",
+            "old_version": "v2.2.0.3",
+            "type": "patch",
+            "type_desc": "前端架构重构",
+            "description": "script.js ESModule拆分完成：单体script.js(3318行/18区块)→13个ES模块(state/utils/api/renderer/auth/chat/rpg/agent-ui/world-ui/admin/personal-api/exchange/app)；依赖图无环单向；入口改为<script type=\"module\" src=\"/static/app.js\">；AST验证0错误；所有原函数完整迁移",
+            "timestamp": "2026-07-07 20:50:00"
+        },
+        {
             "version": "v2.2.0",
             "old_version": "v2.1.28",
             "type": "minor",

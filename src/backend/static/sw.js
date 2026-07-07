@@ -1,11 +1,10 @@
-const CACHE_NAME = 'tavern-cache-v2.1.28';
+const CACHE_NAME = 'tavern-cache-v2.2.0.4';
 const CACHE_ASSETS = [
+    // [AUDIT-Q28] 未缓存主 ES Module 文件（如 app.js/chat.js/rpg.js），无离线能力
     '/',
     '/static/style.css',
     '/static/feedback.css',
-    '/static/script.js',
     '/static/feedback.js',
-    '/static/utils.js',
     '/static/manifest.json'
 ];
 
@@ -37,7 +36,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
         caches.match(event.request).then((cachedResponse) => {
             const fetchPromise = fetch(event.request).then((networkResponse) => {
-                if (networkResponse && networkResponse.status === 200) {
+                const ct = networkResponse.headers.get('Content-Type') || '';
+                if (networkResponse && networkResponse.status === 200 && ct.startsWith('text/html') === false) {
                     caches.open(CACHE_NAME).then((cache) => {
                         if (!event.request.url.includes('/api/') && 
                             !event.request.url.includes('.db') &&

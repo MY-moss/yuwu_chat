@@ -21,9 +21,9 @@
 
 ## 📦 当前版本
 
-**v2.1.5**
+**v2.2.0.5**
 
-> 代码逻辑分类重组完成：5个源码文件添加统一分区注释（合计64区块），提升代码可维护性。
+> 架构重构完成：后端 Blueprint 模块化（v2.2.0.3）+ 前端 ES Module 模块化（v2.2.0.4）；JSON→SQLite数据层迁移；API密钥Fernet加密存储；CSRF防护增强；代码安全审计修复。
 
 ## 🚀 快速开始
 
@@ -59,9 +59,9 @@ python app.py
 
 ```
 ai_chat/
-├── 启动.bat                      # 🚀 根目录一键启动脚本（v2.1.5新增）
+├── 启动.bat                      # 🚀 根目录一键启动脚本
 ├── .gitignore                    # Git 忽略规则
-├── scripts/                      # 🛠️ 工具脚本（5个）
+├── scripts/                      # 🛠️ 工具脚本（6个）
 │   ├── build.bat                 # 构建发布版脚本
 │   ├── bump_version.py           # 版本号递增管理
 │   ├── release_start.bat         # 发布版启动脚本（用于release/）
@@ -70,24 +70,34 @@ ai_chat/
 │   └── test_rpg.py               # RPG功能测试
 ├── src/                          # 📦 源码目录 ⭐
 │   └── backend/                  # 🔧 Flask应用
-│       ├── app.py                # ⭐ 主应用（约2634行，22区块分区注释）
+│       ├── app.py                # ⭐ 主应用（约3436行，22区块分区注释）
 │       ├── .env                  # 环境变量
 │       ├── requirements.txt      # Python依赖
 │       ├── version.json          # 版本号
 │       ├── CHANGELOG.json        # 变更日志
-│       ├── agents.json           # 智能体数据
-│       ├── feedback.json         # 反馈数据
-│       ├── rpg_sessions.json     # RPG会话
-│       ├── worldbooks.json       # 世界书
-│       ├── world_ratings.json    # 世界评价
-│       ├── world_submissions.json# 世界投稿
-│       ├── usage_log.json        # 使用日志
 │       ├── instance/             # SQLite数据库
 │       ├── static/               # 前端静态资源
-│       │   ├── script.js         # 前端主逻辑（约2654行，18区块分区注释）
-│       │   ├── style.css         # 样式表（约2600行，9区块分区注释）
+│       │   ├── app.js            # ES Module 入口（DOMContentLoaded 初始化）
+│       │   ├── state.js          # 共享状态对象
+│       │   ├── utils.js          # 通用工具函数（$ / escapeHtml / toast 等）
+│       │   ├── api.js            # API 调用层（JSON/SSE流式）
+│       │   ├── renderer.js       # Markdown 渲染、状态/故事线渲染
+│       │   ├── auth.js           # 认证 UI（登录/注册/版本/退出）
+│       │   ├── chat.js           # 聊天模式（智能体/消息/会话）
+│       │   ├── rpg.js            # 跑团核心（世界书/开局/行动/围观）
+│       │   ├── agent-ui.js       # 智能体管理 UI
+│       │   ├── world-ui.js       # 世界书管理 UI
+│       │   ├── admin.js          # 管理员面板
+│       │   ├── personal-api.js   # 个人 API 配置
+│       │   ├── exchange.js       # 兑换码/投稿
+│       │   ├── style.css         # 样式表（约3120行，9区块分区注释）
 │       │   ├── feedback.js       # 反馈模块（约391行，9区块分区注释）
 │       │   ├── feedback.css      # 反馈页样式（约352行，6区块分区注释）
+│       │   ├── sw.js             # Service Worker（PWA支持）
+│       │   ├── manifest.json     # PWA配置
+│       │   ├── icons/            # PWA图标
+│       │   │   ├── icon-192.png  # 192x192图标
+│       │   │   └── icon-512.png  # 512x512图标
 │       │   └── reward_qrcode.png # 打赏二维码
 │       └── templates/            # Jinja2模板
 │           ├── index.html        # 主页面（约580行）
@@ -132,6 +142,11 @@ ai_chat/
 - 可以对游戏体验进行评价
 - 提交建议和问题
 
+### 6. PWA 支持
+
+- 支持安装为桌面应用（需要浏览器支持）
+- 离线资源缓存，提升加载速度
+
 ## 📝 开发规则
 
 ### 修改入口
@@ -154,7 +169,7 @@ ai_chat/
 | 文件 | 区块数 | 说明 |
 |------|:------:|------|
 | app.py | 22 | Flask 主应用 |
-| script.js | 18 | 前端主逻辑 |
+| 13 ES Modules | — | 前端主逻辑（v2.2.0.4 起从单体 script.js 拆分） |
 | style.css | 9 | 样式表 |
 | feedback.js | 9 | 反馈模块 |
 | feedback.css | 6 | 反馈页样式 |

@@ -15,6 +15,22 @@ const toastContainer = $('toastContainer');
 
 const TOAST_DURATION = 3000;
 
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+function formatDate(isoString) {
+    if (!isoString) return '';
+    try {
+        const d = new Date(isoString);
+        return d.toLocaleString('zh-CN', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit'
+        });
+    } catch { return isoString; }
+}
+
 function toast(msg, type) {
     if (!msg) return;
     const d = document.createElement('div');
@@ -85,6 +101,21 @@ async function init() {
     }
     $('backToTavernBtn').addEventListener('click', () => window.location.href = '/');
     $('fbDetailClose').addEventListener('click', closeFbDetail);
+    $('fbList').addEventListener('click', e => {
+        const card = e.target.closest('.fb-card');
+        if (card && card.dataset.fbId) openFbDetail(parseInt(card.dataset.fbId));
+    });
+    $('fbPagination').addEventListener('click', e => {
+        const btn = e.target.closest('.fb-page-btn');
+        if (btn && !btn.disabled && btn.dataset.page) goPage(parseInt(btn.dataset.page));
+    });
+    $('fbDetailModal').addEventListener('click', e => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const id = parseInt(btn.dataset.fbId);
+        if (btn.dataset.action === 'save') saveFbDetail(id);
+        if (btn.dataset.action === 'delete') deleteFb(id);
+    });
 }
 
 // ============================================================
@@ -229,7 +260,7 @@ async function loadFeedbackList() {
         ).join('');
 
         return `
-        <div class="fb-card" onclick="openFbDetail(${fb.id})">
+        <div class="fb-card" data-fb-id="${fb.id}">
             <div class="fb-card-header">
                 <div class="fb-card-title">${escapeHtml(fb.title)}</div>
                 <div class="fb-card-meta">
@@ -249,11 +280,11 @@ async function loadFeedbackList() {
 
     if (data.pages > 1) {
         $('fbPagination').style.display = 'flex';
-        let pagesHtml = `<button class="fb-page-btn" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>◀</button>`;
+        let pagesHtml = `<button class="fb-page-btn" data-page="${currentPage - 1}" ${currentPage === 1 ? 'disabled' : ''}>◀</button>`;
         for (let i = 1; i <= data.pages; i++) {
-            pagesHtml += `<button class="fb-page-btn ${i === currentPage ? 'active' : ''}" onclick="goPage(${i})">${i}</button>`;
+            pagesHtml += `<button class="fb-page-btn ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</button>`;
         }
-        pagesHtml += `<button class="fb-page-btn" onclick="goPage(${currentPage + 1})" ${currentPage === data.pages ? 'disabled' : ''}>▶</button>`;
+        pagesHtml += `<button class="fb-page-btn" data-page="${currentPage + 1}" ${currentPage === data.pages ? 'disabled' : ''}>▶</button>`;
         $('fbPagination').innerHTML = pagesHtml;
     } else {
         $('fbPagination').style.display = 'none';
@@ -343,8 +374,8 @@ async function openFbDetail(id) {
                 ${statusOptions}
             </select>
             <input type="text" class="fb-admin-note" id="adminNote" placeholder="管理员备注..." value="${escapeHtml(fb.admin_note || '')}">
-            <button class="fb-admin-save" onclick="saveFbDetail(${fb.id})">💾 保存</button>
-            <button class="fb-admin-delete" onclick="deleteFb(${fb.id})">🗑 删除</button>
+            <button class="fb-admin-save" data-action="save" data-fb-id="${fb.id}">💾 保存</button>
+            <button class="fb-admin-delete" data-action="delete" data-fb-id="${fb.id}">🗑 删除</button>
         </div>` : ''}
     `;
     $('fbDetailModal').style.display = 'flex';
@@ -403,6 +434,7 @@ function showConfirmModal(msg) {
     });
 }
 
+// [AUDIT-E07] init() 在 DOMContentLoaded 前执行，$('toastContainer') 为 null 时可能出错
 init();
 
 // ===== END OF FILE =====

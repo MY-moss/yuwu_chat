@@ -12,6 +12,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="云雾酒馆">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <!-- [AUDIT-X08] 无 Content-Security-Policy meta 标签，XSS 缺少二次防御层 -->
 </head>
 <body>
     <div class="tavern-bg"></div>
@@ -658,7 +659,8 @@
 
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" integrity="sha256-Pn59f+s+XVjLbIBPaKtcJMx+XrYnD9bly7kSRzkhfQw=" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" integrity="sha256-jrQbZYgx+rF1+tm80A/LLYTg7TolpVBT1OzUREuLQ6A=" crossorigin="anonymous"></script>
+    <!-- [AUDIT-X07] highlight.js CDN 缺少 SRI integrity 属性，CDN 被篡改时可执行任意 JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <script src="/static/script.js"></script>
+    <script type="module" src="/static/app.js"></script>
 </body>
 </html>

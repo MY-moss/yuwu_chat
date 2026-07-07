@@ -10,8 +10,8 @@ try:
     print('Server already running')
 except Exception:
     env = os.environ.copy()
-    env['AI_API_KEY'] = 'public'
-    env['AI_API_URL'] = 'https://opencode.ai/zen/v1/chat/completions'
+    env['AI_API_KEY'] = os.environ.get('AI_API_KEY', '')
+    env['AI_API_URL'] = os.environ.get('AI_API_URL', '')
     env['PYTHONIOENCODING'] = 'utf-8'
     p = subprocess.Popen(['python', 'app.py'], cwd=BASE_DIR,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)

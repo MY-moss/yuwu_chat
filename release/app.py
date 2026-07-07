@@ -20,7 +20,7 @@ import ipaddress
 import requests
 from flask import Flask, render_template, request, jsonify, session, Response, stream_with_context
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import QueuePool
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -37,6 +37,24 @@ except ImportError:
 
 
 _API_KEY_PATTERN = re.compile(r'(sk-[a-zA-Z0-9]{20,}|api[_-]?key["\']?\s*[:=]\s*["\']?[a-zA-Z0-9]{16,})', re.IGNORECASE)
+_UNICODE_CONTROL_RE = re.compile(r'[\u0000-\u0008\u000b\u000c\u000e-\u001f\u200b-\u200f\u2028-\u202f\u2060-\u206f\ufff0-\uffff]')
+def sanitize_input(text):
+    if isinstance(text, str):
+        return _UNICODE_CONTROL_RE.sub('', text.strip())
+    return text
+
+
+_PATH_TRAVERSAL_RE = re.compile(r'[\\/]\.\.|[\\/]\.\.[\\/]|~|\.exe|\.bat|\.sh')
+def validate_id_param(id_value):
+    if not id_value or not isinstance(id_value, str):
+        return False
+    if len(id_value) > 200:
+        return False
+    if _PATH_TRAVERSAL_RE.search(id_value):
+        return False
+    return True
+
+
 def sanitize_log(msg):
     if isinstance(msg, str):
         return _API_KEY_PATTERN.sub('***API_KEY_REDACTED***', msg)
@@ -57,6 +75,8 @@ def is_safe_url(url):
         p = urlparse(url)
         if p.scheme not in ('http', 'https'):
             return False, '仅支持 http/https 协议'
+        if '@' in p.netloc:
+            return False, 'URL包含认证信息，不允许'
         hostname = p.hostname
         if not hostname:
             return False, '无效的主机名'
@@ -71,7 +91,6 @@ def is_safe_url(url):
                     return False, '不允许访问私有网络地址'
             else:
                 return False, '不允许访问私有网络地址'
-        # Check for encoded IP addresses (decimal, hex, octal, mixed)
         try:
             decoded_ip = None
             if hostname.isdigit() or (len(hostname) > 2 and hostname.startswith(('0x', '0X'))):
@@ -95,6 +114,20 @@ def is_safe_url(url):
                     return False, '不允许访问私有或本地地址'
         except (ValueError, TypeError):
             pass
+        try:
+            import socket
+            resolved = socket.getaddrinfo(hostname, None)
+            for family, _, _, _, sockaddr in resolved:
+                if family == socket.AF_INET:
+                    ip = sockaddr[0]
+                    try:
+                        addr = ipaddress.ip_address(ip)
+                        if addr.is_private or addr.is_loopback or addr.is_link_local:
+                            return False, 'DNS解析到私有地址，不允许'
+                    except ValueError:
+                        pass
+        except Exception:
+            return False, 'DNS解析失败'
         return True, ''
     except Exception as e:
         return False, 'URL 解析失败'
@@ -123,18 +156,23 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(BASE_PATH, "in
 # outside the web root (e.g., /var/data/) to prevent direct download via the web server.
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'poolclass': NullPool,
+    'poolclass': QueuePool,
+    'pool_size': 10,
+    'max_overflow': 20,
+    'pool_pre_ping': True,
+    'pool_recycle': 3600,
     'connect_args': {'timeout': 30}
 }
 app.config['TEMPLATES_AUTO_RELOAD'] = app.debug
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
+from logging.handlers import RotatingFileHandler
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(os.path.join(BASE_PATH, 'app.log'), encoding='utf-8')
+        RotatingFileHandler(os.path.join(BASE_PATH, 'app.log'), maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)
@@ -189,6 +227,7 @@ def safe_commit():
         logger.error(f"Database commit failed: {e}")
         return False
 
+_COMMON_PASSWORDS = {'12345678', 'password', 'qwerty123', 'admin123', 'letmein', 'welcome1', 'monkey123', 'dragon123', 'abc12345', 'iloveyou'}
 def validate_password(password):
     if len(password) < 8:
         return False, "密码长度至少8位"
@@ -198,6 +237,10 @@ def validate_password(password):
         return False, "密码必须包含至少一个大写字母"
     if not re.search(r'[0-9]', password):
         return False, "密码必须包含至少一个数字"
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;/\']', password):
+        return False, "密码必须包含至少一个特殊字符"
+    if password.lower() in _COMMON_PASSWORDS:
+        return False, "密码过于常见，请使用更复杂的密码"
     return True, ""
 
 @app.before_request
@@ -224,22 +267,24 @@ def get_csrf_token():
     return jsonify({"csrf_token": session['_csrf_token']})
 
 @app.after_request
-def add_no_cache_header(response):
+def add_security_and_cache_headers(response):
     if request.path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
+        response.headers['Cache-Control'] = 'public, max-age=3600, must-revalidate'
+        response.headers.pop('Pragma', None)
+        response.headers.pop('Expires', None)
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Content-Security-Policy'] = (
         "default-src 'self'; "
-        "script-src 'self' cdn.jsdelivr.net 'unsafe-inline'; "
+        "script-src 'self' cdn.jsdelivr.net 'unsafe-inline' 'strict-dynamic'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
         "connect-src 'self'; "
         "font-src 'self'; "
-        "frame-ancestors 'none'"
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
     )
     return response
 
@@ -369,6 +414,16 @@ _redeem_lock = threading.Lock()
 _REDEEM_RATE_LIMIT = 5
 _REDEEM_RATE_WINDOW = 60
 _SESSION_TTL = 86400
+_INITIAL_CREDITS = 100
+_ADMIN_CREDITS = 99999
+_MAX_SESSIONS = 500
+_MAX_HISTORIES = 500
+_MAX_HISTORY_MSGS = 100
+_MAX_TOTAL_MSGS = 10000
+_MAX_CHAT_TOKENS = 1024
+_MAX_RPG_TOKENS = 1500
+_MAX_USAGE_LOG = 10000
+_DEDUCT_RETRIES = 3
 
 
 def save_sessions():
@@ -440,6 +495,9 @@ def load_ratings():
 def save_ratings(ratings_dict):
     with _ratings_lock:
         WorldRating.query.delete()
+        if not safe_commit():
+            logger.error("save_ratings: delete failed, abort")
+            return
         for wid, rating_list in ratings_dict.items():
             for r in rating_list:
                 wr = WorldRating(
@@ -448,7 +506,7 @@ def save_ratings(ratings_dict):
                     rating=r.get('rating', 3), review=r.get('review', '')
                 )
                 db.session.add(wr)
-        db.session.commit()
+        safe_commit()
 
 def load_worlds():
     try:
@@ -462,6 +520,9 @@ def load_worlds():
 def save_worlds_data(worlds_list):
     with _worlds_lock:
         WorldBook.query.delete()
+        if not safe_commit():
+            logger.error("save_worlds_data: delete failed, abort")
+            return
         for w_data in worlds_list:
             wb = WorldBook(
                 id=w_data.get('id'), name=w_data.get('name', ''),
@@ -473,7 +534,7 @@ def save_worlds_data(worlds_list):
                 order=w_data.get('order', 0)
             )
             db.session.add(wb)
-        db.session.commit()
+        safe_commit()
 
 
 def load_submissions():
@@ -489,6 +550,9 @@ def load_submissions():
 def save_submissions(subs_list):
     with _submissions_lock:
         WorldSubmission.query.delete()
+        if not safe_commit():
+            logger.error("save_submissions: delete failed, abort")
+            return
         for s_data in subs_list:
             ws = WorldSubmission(
                 id=s_data.get('id'), name=s_data.get('name', ''),
@@ -502,7 +566,7 @@ def save_submissions(subs_list):
                 status=s_data.get('status', 'pending')
             )
             db.session.add(ws)
-        db.session.commit()
+        safe_commit()
 
 
 _usage_log_lock = threading.Lock()
@@ -711,7 +775,7 @@ class Agent(db.Model):
             d['greeting'] = self.greeting
         if self.mock_replies:
             try: d['mock_replies'] = json.loads(self.mock_replies)
-            except: d['mock_replies'] = {}
+            except Exception: d['mock_replies'] = {}
         if self.mock_default:
             d['mock_default'] = self.mock_default
         return d
@@ -821,6 +885,30 @@ class UsageLog(db.Model):
             'endpoint': self.endpoint,
             'time': self.created_at.isoformat()
         }
+
+
+class RateLimitEntry(db.Model):
+    __tablename__ = 'rate_limit_entry'
+    id = db.Column(db.Integer, primary_key=True)
+    action = db.Column(db.String(32), nullable=False, index=True)
+    key = db.Column(db.String(128), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, index=True)
+
+
+def check_rate_limit(action, key, max_attempts=5, window=60):
+    cutoff = datetime.now() - timedelta(seconds=window)
+    RateLimitEntry.query.filter(RateLimitEntry.created_at < cutoff).filter_by(action=action).delete()
+    recent = RateLimitEntry.query.filter(
+        RateLimitEntry.action == action,
+        RateLimitEntry.key == key,
+        RateLimitEntry.created_at >= cutoff
+    ).count()
+    if recent >= max_attempts:
+        db.session.commit()
+        return False
+    db.session.add(RateLimitEntry(action=action, key=key))
+    db.session.commit()
+    return True
 
 
 # ============================================================
@@ -954,7 +1042,7 @@ def migrate_json_to_sqlite():
                                 endpoint=l.get('endpoint', 'chat'),
                                 created_at=datetime.fromisoformat(ts.replace('Z', '+00:00').split('+')[0])
                             ))
-                        except: pass
+                        except Exception: pass
                     db.session.commit()
                     logger.info(f"Migrated usage logs from JSON to SQLite")
                 except Exception as e:
@@ -988,6 +1076,10 @@ def init_db():
         try:
             db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_user_last_active ON user(last_active)"))
             db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_feedback_user_id ON feedback(user_id)"))
+            db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_credit_key_key ON credit_key(key)"))
+            db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_model_config_model_id ON model_config(model_id)"))
+            db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_usage_log_created_at ON usage_log(created_at)"))
+            db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_rate_limit_entry_action ON rate_limit_entry(action, key)"))
             try: db.session.execute(db.text("ALTER TABLE user ADD COLUMN password_reset_required BOOLEAN DEFAULT 0")); db.session.commit()
             except Exception: pass
         except Exception as e:
@@ -999,7 +1091,7 @@ def init_db():
             if not admin_pwd:
                 admin_pwd = secrets.token_urlsafe(16)
                 logger.info("Admin password auto-generated (set ADMIN_PASSWORD env var to customize)")
-            admin = User(username='admin', role='admin', credits=99999)
+            admin = User(username='admin', role='admin', credits=_ADMIN_CREDITS)
             admin.set_password(admin_pwd)
             db.session.add(admin)
             safe_commit()
@@ -1185,16 +1277,10 @@ def register():
         return jsonify({"error": pwd_msg}), 400
 
     client_ip = request.remote_addr
-    with _register_lock:
-        now = time.time()
-        reg_attempts = _register_attempts.get(client_ip, [])
-        reg_attempts = [t for t in reg_attempts if now - t < _REGISTER_RATE_WINDOW]
-        if len(reg_attempts) >= _REGISTER_RATE_LIMIT:
-            return jsonify({"error": "注册过于频繁，请稍后再试"}), 429
-        reg_attempts.append(now)
-        _register_attempts[client_ip] = reg_attempts
+    if not check_rate_limit('register', client_ip, max_attempts=5, window=60):
+        return jsonify({"error": "注册过于频繁，请稍后再试"}), 429
 
-    user = User(username=username, credits=100)
+    user = User(username=username, credits=_INITIAL_CREDITS)
     user.set_password(password)
     db.session.add(user)
     try:
@@ -1207,6 +1293,7 @@ def register():
         return jsonify({"error": "注册失败，请重试"}), 500
 
     login_user(user)
+    session.cycle()
     session.permanent = True
     session['_user_token_version'] = user.token_version or 1
     return jsonify({"message": "注册成功", "user": user.to_dict()}), 201
@@ -1235,31 +1322,23 @@ def user_usage():
 @app.route("/api/auth/login", methods=["POST"])
 def login():
     data = request.json
-    username = data.get("username", "").strip()
+    username = sanitize_input(data.get("username", ""))
     password = data.get("password", "").strip()
 
     client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
 
-    with _login_lock:
-        now = time.time()
-        attempts = _login_attempts.get(client_ip, [])
-        attempts = [t for t in attempts if now - t < _LOGIN_RATE_WINDOW]
-        if len(attempts) >= _LOGIN_RATE_LIMIT:
-            return jsonify({"error": f"登录尝试过于频繁，请 {_LOGIN_RATE_WINDOW} 秒后再试"}), 429
-        attempts.append(now)
-        _login_attempts[client_ip] = attempts
+    if not check_rate_limit('login', client_ip, max_attempts=5, window=60):
+        return jsonify({"error": "登录尝试过于频繁，请稍后再试"}), 429
 
     user = User.query.filter_by(username=username).first()
     if not user or not user.check_password(password):
         return jsonify({"error": "用户名或密码错误"}), 401
 
     login_user(user)
+    session.cycle()
     session.permanent = True
     session['_user_token_version'] = user.token_version or 1
     session['_csrf_token'] = secrets.token_hex(16)
-
-    with _login_lock:
-        _login_attempts.pop(client_ip, None)
 
     return jsonify({"message": "登录成功", "user": user.to_dict(), "password_reset_required": user.password_reset_required or False, "csrf_token": session['_csrf_token']})
 
@@ -1720,6 +1799,8 @@ def add_agent():
 @login_required
 @admin_required
 def update_agent(agent_id):
+    if not validate_id_param(agent_id):
+        return jsonify({"error": "无效的智能体ID"}), 400
     data = request.json
     agents = load_agents()
     for i, a in enumerate(agents):
@@ -1824,11 +1905,15 @@ def chat():
             histories[history_key].append({"role": "user", "content": user_message})
             histories[history_key].append({"role": "assistant", "content": reply})
             history_length = len(histories[history_key])
-            if history_length > 100:
-                histories[history_key] = histories[history_key][-100:]
-            if len(histories) > 500:
-                oldest_keys = sorted(histories.keys())[:len(histories)-500]
+            if history_length > _MAX_HISTORY_MSGS:
+                histories[history_key] = histories[history_key][:-_MAX_HISTORY_MSGS]
+            if len(histories) > _MAX_HISTORIES:
+                oldest_keys = sorted(histories.keys())[:len(histories)-_MAX_HISTORIES]
                 for k in oldest_keys:
+                    histories.pop(k, None)
+            total_msgs = sum(len(v) for v in histories.values())
+            if total_msgs > 10000:
+                for k in list(histories.keys())[:50]:
                     histories.pop(k, None)
         
         return jsonify({
@@ -2471,6 +2556,12 @@ def start_rpg():
 
     log_usage(current_user.id, current_user.username, model, tokens, cost, "rpg_start")
 
+    if len(rpg_sessions) >= 500:
+        oldest = sorted(rpg_sessions.keys(), key=lambda x: rpg_sessions[x].get("created_at", ""))[:50]
+        for k in oldest:
+            rpg_sessions.pop(k, None)
+        logger.warning(f"rpg_sessions capped at 500, evicted {len(oldest)} oldest")
+
     now = datetime.now().isoformat()
     rpg_sessions[session_id] = {
         "world_id": world_id, "player_name": player_name,
@@ -2626,6 +2717,7 @@ def rpg_act_stream():
 
     def generate():
         import json as _json
+        total_tokens = 0
         if not api_key:
             mock_text = "【状态】\n生命值:100/100\n法力值:50/50\n\n（AI 暂未配置，请管理员在面板中配置 API 密钥）"
             for ch in mock_text:
@@ -3115,14 +3207,8 @@ def delete_credit_key(key_id):
 @login_required
 def redeem_key():
     client_ip = request.remote_addr
-    with _redeem_lock:
-        now = time.time()
-        attempts = _redeem_attempts.get(client_ip, [])
-        attempts = [t for t in attempts if now - t < _REDEEM_RATE_WINDOW]
-        if len(attempts) >= _REDEEM_RATE_LIMIT:
-            return jsonify({"error": "兑换过于频繁，请稍后再试"}), 429
-        attempts.append(now)
-        _redeem_attempts[client_ip] = attempts
+    if not check_rate_limit('redeem', client_ip, max_attempts=5, window=60):
+        return jsonify({"error": "兑换过于频繁，请稍后再试"}), 429
 
     data = request.json
     code = data.get("key", "").strip().upper()

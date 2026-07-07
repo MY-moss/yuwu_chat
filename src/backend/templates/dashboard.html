@@ -154,8 +154,12 @@
         </div>
     </div>
     
-    <script src="/static/utils.js"></script>
+    <!-- [AUDIT-N102] 内联脚本块约 160 行，如未来启用 CSP 则被阻止执行 -->
     <script>
+        function escapeHtml(s) {
+            if (s == null) return '';
+            return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+        }
         let refreshTimer = null;
 
         async function fetchStats() {

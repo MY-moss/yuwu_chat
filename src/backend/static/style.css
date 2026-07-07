@@ -17,8 +17,8 @@ body {
     --border: #5a4a3a;
     --text: #e8ddd0;
     --text-dim: #b8a898;
-    --text-bright: var(--text-bright);
-    --gold: var(--gold);
+    --text-bright: var(--text-bright);  /* [AUDIT-N05] 自引用循环，CSS 变量解析失败 → 全局颜色系统崩溃 */
+    --gold: var(--gold);  /* [AUDIT-N05] 同上：自引用循环，应替换为 #c8a84e 等实际色值 */
     --gold-dim: #a08030;
     --gold-light: #f0c060;
     --accent: #c0392b;
@@ -3057,7 +3057,7 @@ body {
     line-height: 1.7;
     color: var(--text);
 }
-.preview-content :deep(.md-body) {
+.preview-content :deep(.md-body) {  /* [AUDIT-N51] :deep() 是 Vue 专用伪选择器，标准 CSS 中无效 */
     margin: 0;
 }
 .preview-content :deep(pre) {

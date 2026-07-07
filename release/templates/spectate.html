@@ -48,8 +48,9 @@
     <script id="tokenData" type="application/json">{{ token|tojson }}</script>
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" integrity="sha256-Pn59f+s+XVjLbIBPaKtcJMx+XrYnD9bly7kSRzkhfQw=" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" integrity="sha256-jrQbZYgx+rF1+tm80A/LLYTg7TolpVBT1OzUREuLQ6A=" crossorigin="anonymous"></script>
-    <script src="/static/utils.js"></script>
+    <!-- [AUDIT-N103] 内联脚本块 ~40 行，CSP 激活时被阻止 -->
     <script>
+    function escapeHtml(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
     const token = JSON.parse(document.getElementById('tokenData').textContent);
     function renderMd(t){if(!t)return'';try{if(typeof marked!=='undefined'){marked.setOptions({breaks:true,gfm:true});return DOMPurify.sanitize(marked.parse(t));}}catch(e){}return DOMPurify.sanitize(String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));}
     function parseStatVal(v){if(!v||!v.trim())return'<div class="status-empty" style="padding:2px 0;">空</div>';const items=String(v).split(/\s+/).filter(s=>s.includes(':'));if(!items.length)return'<div class="status-item"><span class="status-value">'+escapeHtml(v)+'</span></div>';return items.map(i=>{let n=i.indexOf(':'),label=i.slice(0,n).trim(),value=i.slice(n+1).trim(),cls='status-value';const num=parseFloat(value);if(!isNaN(num))cls+=num<=20?' danger':num>=80?' success':' highlight';return'<div class="status-item"><span class="status-label">'+escapeHtml(label)+'</span><span class="'+cls+'">'+escapeHtml(value)+'</span></div>';}).join('');}
