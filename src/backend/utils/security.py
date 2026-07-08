@@ -6,6 +6,7 @@ import os
 import logging
 import base64
 import ipaddress
+import functools
 from urllib.parse import urlparse
 from flask import current_app, jsonify
 from flask_login import current_user
@@ -50,7 +51,6 @@ def sanitize_log(msg):
 
 
 def is_safe_url(url):
-    # [AUDIT-Q14] 60行过于复杂，DNS阻塞调用可能在服务器上被滥用为SSRF探测工具
     try:
         p = urlparse(url)
         if p.scheme not in ('http', 'https'):
@@ -60,66 +60,17 @@ def is_safe_url(url):
         hostname = p.hostname
         if not hostname:
             return False, '无效的主机名'
-        if hostname in ('localhost', '127.0.0.1', '0.0.0.0', '::1'):
+        if hostname in ('localhost', '127.0.0.1', '0.0.0.0', '::1', 'localhost.localdomain'):
             return False, '不允许访问本地地址'
-        if hostname.startswith('169.254.'):
-            return False, '不允许访问链路本地地址'
-        if hostname.startswith('10.') or hostname.startswith('192.168.') or hostname.startswith('172.'):
-            if hostname.startswith('172.'):
-                parts = hostname.split('.')
-                if len(parts) >= 2 and 16 <= int(parts[1]) <= 31:
-                    return False, '不允许访问私有网络地址'
-            else:
-                return False, '不允许访问私有网络地址'
-        if hostname.startswith('100.'):
-            parts = hostname.split('.')
-            if len(parts) >= 2 and 64 <= int(parts[1]) <= 127:
-                return False, '不允许访问共享地址空间'
         try:
-            decoded_ip = None
-            if hostname.isdigit() or (len(hostname) > 2 and hostname.startswith(('0x', '0X'))):
-                decoded_ip = str(ipaddress.IPv4Address(int(hostname, 0)))
-            elif '.' in hostname:
-                parts = hostname.split('.')
-                if len(parts) == 4:
-                    octets = []
-                    for p in parts:
-                        if p.startswith(('0x', '0X')):
-                            octets.append(int(p, 16))
-                        elif p.startswith('0') and len(p) > 1:
-                            octets.append(int(p, 8))
-                        else:
-                            octets.append(int(p))
-                    if all(0 <= o <= 255 for o in octets):
-                        decoded_ip = '.'.join(str(o) for o in octets)
-            if decoded_ip:
-                addr = ipaddress.ip_address(decoded_ip)
-                if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast:
-                    return False, '不允许访问私有或本地地址'
-        except (ValueError, TypeError):
+            addr = ipaddress.ip_address(hostname)
+            if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast:
+                return False, '不允许访问私有或本地地址'
+        except ValueError:
             pass
-        try:
-            import socket
-            resolved = socket.getaddrinfo(hostname, None)
-            for family, _, _, _, sockaddr in resolved:
-                ip = sockaddr[0]
-                try:
-                    addr = ipaddress.ip_address(ip)
-                    if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast:
-                        return False, 'DNS解析到私有地址，不允许'
-                except ValueError:
-                    pass
-        except Exception:
-            return False, 'DNS解析失败'
         return True, ''
     except Exception as e:
         return False, 'URL 解析失败'
-
-
-def escape_html(s):
-    if s is None:
-        return ''
-    return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;').replace("'", '&#39;')
 
 
 def get_fernet():
@@ -153,7 +104,7 @@ def decrypt_value(ciphertext):
         return None
     if not HAS_CRYPTO:
         logger.error("decrypt_value failed: cryptography library not installed")
-        return None
+        raise RuntimeError("加密依赖未安装，请安装 cryptography 库")
     try:
         decoded = base64.urlsafe_b64decode(ciphertext)
         if len(decoded) >= 16:
@@ -171,7 +122,7 @@ def decrypt_value(ciphertext):
         return f.decrypt(ciphertext.encode()).decode()
     except Exception:
         logger.error(f"decrypt_value failed: invalid ciphertext")
-        return None
+        raise RuntimeError("解密失败：无效的密文")
 
 
 def safe_commit():
@@ -201,9 +152,9 @@ def validate_password(password):
 
 
 def admin_required(f):
+    @functools.wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated or current_user.role != 'admin':
             return jsonify({"error": "管理员权限不足"}), 403
         return f(*args, **kwargs)
-    decorated_function.__name__ = f.__name__
     return decorated_function

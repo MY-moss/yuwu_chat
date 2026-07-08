@@ -44,9 +44,9 @@ export async function api(url, opts = {}) {
         headers['X-CSRF-Token'] = state.csrfToken;
     }
     const res = await fetch(url, {
+        ...opts,
         headers,
-        credentials: 'include',
-        ...opts
+        credentials: 'include'
     });
     let data;
     try {

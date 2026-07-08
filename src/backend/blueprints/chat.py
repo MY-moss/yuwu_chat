@@ -10,7 +10,7 @@ from models import db, UsageLog, ModelConfig, UserModelConfig
 from config import _MAX_HISTORY_MSGS, _MAX_HISTORIES
 from state import histories, _histories_lock
 from utils.security import admin_required, validate_id_param, sanitize_log, is_safe_url
-from utils.json_io import log_usage
+from utils.json_io import log_usage, check_rate_limit
 from utils.ai_service import (load_agents, save_agents, get_agent, get_model_price,
                               get_effective_api, mock_reply, using_personal_api,
                               calc_token_cost, deduct_credits, parse_usage)
@@ -143,6 +143,9 @@ def delete_agent(agent_id):
 @chat_bp.route("/api/chat", methods=["POST"])
 @login_required
 def chat():
+    client_ip = request.remote_addr
+    if not check_rate_limit('chat', client_ip, max_attempts=20, window=60):
+        return jsonify({"error": "发送过于频繁，请稍后再试"}), 429
     data = request.json
     user_message = data.get("message", "").strip()
     agent_id = data.get("agent_id", "")
@@ -161,6 +164,13 @@ def chat():
     credits_per_1k = get_model_price(model)
 
     history_key = f"{current_user.id}_{agent_id}"
+
+    personal = using_personal_api()
+    max_tokens = 1024
+    max_cost = calc_token_cost(max_tokens, credits_per_1k) if not personal else 0
+
+    if not personal and not deduct_credits(current_user, max_cost):
+        return jsonify({"error": f"积分不足（需要 {max_cost} 积分）"}), 402
 
     # [AUDIT-E10] 用户消息在 line 188 附加到 body["messages"]，但 histories[-19:] 在 line 189，导致当前消息先于历史
     try:
@@ -181,7 +191,7 @@ def chat():
                 "model": model,
                 "messages": [{"role": "system", "content": agent["system_prompt"]}],
                 "temperature": agent.get("temperature", 0.8),
-                "max_tokens": 1024
+                "max_tokens": max_tokens
             }
 
             with _histories_lock:
@@ -202,22 +212,23 @@ def chat():
                 if history_key not in histories:
                     histories[history_key] = []
                 messages = [{"role": "system", "content": agent["system_prompt"]}]
-                messages.extend([{"role": "user", "content": user_message}])
                 messages.extend(histories[history_key][-19:])
+                messages.extend([{"role": "user", "content": user_message}])
             reply = mock_reply(user_message, agent)
             total_tokens = 0
 
-        # [AUDIT-S16] 非原子扣除：先用户获取历史，后调用 API，再扣费（竞态窗口大）
-        personal = using_personal_api()
-        cost = calc_token_cost(total_tokens, credits_per_1k) if not personal else 0
-        if not personal and not deduct_credits(current_user, cost):
-            return jsonify({"error": f"积分不足（需要 {cost} 积分）"}), 402
-
         if not personal:
+            actual_cost = calc_token_cost(total_tokens, credits_per_1k)
+            refund = max_cost - actual_cost
+            if refund > 0:
+                db.session.execute(
+                    db.text("UPDATE user SET credits = credits + :refund WHERE id = :uid"),
+                    {"refund": refund, "uid": current_user.id}
+                )
             current_user.total_tokens = (current_user.total_tokens or 0) + total_tokens
             db.session.commit()
 
-        log_usage(current_user.id, current_user.username, model, total_tokens, cost, "chat")
+        log_usage(current_user.id, current_user.username, model, total_tokens, actual_cost, "chat")
 
         with _histories_lock:
             histories[history_key].append({"role": "user", "content": user_message})

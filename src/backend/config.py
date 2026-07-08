@@ -34,11 +34,10 @@ class Config:
     TEMPLATES_AUTO_RELOAD = True
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
-    # [AUDIT-N53] SESSION_COOKIE_SECURE = False 未通过环境变量控制，生产部署可能遗漏 HTTPS-only
-    SESSION_COOKIE_SECURE = False  # 生产环境 HTTPS 下置 True
-    # [AUDIT-N03] SECRET_KEY 占位符是确定性字符串，启动时需 assert 检测覆盖
+    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
+    # [AUDIT-N03] SECRET_KEY 占位符是确定性字符串，运行时由 create_app 检测并替换
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
-    SECRET_KEY = 'GENERATE_RANDOM_KEY_IN_PRODUCTION'  # 运行时由 create_app 替换
+    SECRET_KEY = 'GENERATE_RANDOM_KEY_IN_PRODUCTION'  # 运行时由 create_app 替换为文件持久化的随机密钥
 
 
 # ===== JSON 数据文件路径 =====
@@ -65,10 +64,3 @@ _MAX_RPG_TOKENS = 1500
 _MAX_USAGE_LOG = 10000
 _DEDUCT_RETRIES = 3
 
-# ===== 登录/注册/兑换 限流参数 =====
-_LOGIN_RATE_LIMIT = 5
-_LOGIN_RATE_WINDOW = 60
-_REGISTER_RATE_LIMIT = 5
-_REGISTER_RATE_WINDOW = 60
-_REDEEM_RATE_LIMIT = 5
-_REDEEM_RATE_WINDOW = 60

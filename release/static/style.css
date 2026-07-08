@@ -17,8 +17,8 @@ body {
     --border: #5a4a3a;
     --text: #e8ddd0;
     --text-dim: #b8a898;
-    --text-bright: var(--text-bright);  /* [AUDIT-N05] 自引用循环，CSS 变量解析失败 → 全局颜色系统崩溃 */
-    --gold: var(--gold);  /* [AUDIT-N05] 同上：自引用循环，应替换为 #c8a84e 等实际色值 */
+    --text-bright: #f8f0e8;
+    --gold: #c8a84e;
     --gold-dim: #a08030;
     --gold-light: #f0c060;
     --accent: #c0392b;
@@ -707,7 +707,6 @@ body {
 
 /* Mobile Tab Bar */
 .mobile-tab-bar {
-    display: none;
     position: fixed;
     bottom: 0;
     left: 0;
@@ -3092,17 +3091,17 @@ body {
     line-height: 1.7;
     color: var(--text);
 }
-.preview-content :deep(.md-body) {  /* [AUDIT-N51] :deep() 是 Vue 专用伪选择器，标准 CSS 中无效 */
+.preview-content .md-body {
     margin: 0;
 }
-.preview-content :deep(pre) {
+.preview-content pre {
     background: rgba(0,0,0,0.3);
     border-radius: 6px;
     padding: 8px;
     overflow-x: auto;
     font-size: 12px;
 }
-.preview-content :deep(code) {
+.preview-content code {
     background: rgba(212,168,75,0.1);
     padding: 2px 4px;
     border-radius: 4px;

@@ -7,7 +7,6 @@ import uuid
 import time
 import logging
 import tempfile
-import shutil
 from datetime import datetime, timedelta
 from models import (db, Agent, WorldRating, WorldBook, WorldSubmission,
                     UsageLog, RateLimitEntry)
@@ -23,12 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 def atomic_json_dump(data, file_path, **kwargs):
-    # [AUDIT-P11] Windows 上 shutil.move 跨卷非原子操作（回退 file copy + delete 时出现部分写入）
     fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(file_path) or None)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2, **kwargs)
-        shutil.move(tmp_path, file_path)
+        os.replace(tmp_path, file_path)
     except Exception:
         try:
             os.unlink(tmp_path)

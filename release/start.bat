@@ -31,9 +31,9 @@ if exist ".env" (
 )
 
 if defined AI_API_KEY (
-    echo   AI: configured (Key: ********^)
+    echo   AI: configured \(Key: ********\)
 ) else (
-    echo   AI: not configured (edit .env to set AI_API_KEY^)
+    echo   AI: not configured \(edit .env to set AI_API_KEY\)
 )
 echo.
 
@@ -45,9 +45,6 @@ if exist "云雾酒馆.exe" (
 ) else if exist "tavern.exe" (
     start "" http://127.0.0.1:9000
     "tavern.exe"
-) else (
-    echo   ❌ 错误: 未找到可执行文件
-    echo   请确保 tavern.exe 或 云雾酒馆.exe 存在于当前目录
 )
 
 echo.

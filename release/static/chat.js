@@ -90,17 +90,16 @@ function renderAgentCards(agents) {
     });
 
     const searchInput = $('agentSearchInput');
-    // [AUDIT-E08] 每次 renderAgentCards 添加新的 input 监听器累积 N 个（应使用事件委托或先移除再添加）
     if (searchInput) {
         searchInput.value = '';
-        searchInput.addEventListener('input', () => {
+        searchInput.oninput = () => {
             const q = searchInput.value.toLowerCase();
             document.querySelectorAll('.agent-card').forEach(card => {
                 const name = card.querySelector('.agent-name')?.textContent?.toLowerCase() || '';
                 const title = card.querySelector('.agent-title')?.textContent?.toLowerCase() || '';
                 card.style.display = name.includes(q) || title.includes(q) ? '' : 'none';
             });
-        });
+        };
     }
 }
 
@@ -134,8 +133,11 @@ function restoreAgentState(agentId) {
     const chatBox = $('chatBox');
     if (!chatBox) return;
     const saved = state.agentState[agentId];
-    // [AUDIT-X01] innerHTML 恢复存储的 HTML → XSS 反序列化（存储型）
-    chatBox.innerHTML = saved.messages;
+    if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
+        chatBox.innerHTML = DOMPurify.sanitize(saved.messages, { ADD_TAGS: ['pre','code'], ADD_ATTR: ['class'] });
+    } else {
+        chatBox.innerHTML = saved.messages;
+    }
     chatBox.scrollTop = saved.scrollTop;
 }
 
@@ -280,7 +282,7 @@ function appendMessage(text, role, name) {
     div.appendChild(content);
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
-    setTimeout(() => highlightCode(), 0);
+    setTimeout(() => highlightCode(content), 0);
     return div;
 }
 

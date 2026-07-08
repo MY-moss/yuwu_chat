@@ -14,7 +14,7 @@ from state import rpg_sessions, _sessions_lock, _ratings_lock
 from utils.security import admin_required, sanitize_log, is_safe_url
 from utils.json_io import (load_worlds, save_worlds_data, load_ratings, save_ratings,
                            load_submissions, save_submissions, save_sessions,
-                           log_usage, MANDATORY_RPG_FORMAT)
+                           log_usage, check_rate_limit, MANDATORY_RPG_FORMAT)
 from utils.ai_service import (call_ai, get_model_price, get_effective_api,
                               using_personal_api, calc_token_cost, deduct_credits,
                               estimate_tokens, parse_rpg_reply, _resolve_judgment,
@@ -170,6 +170,9 @@ def rate_world(world_id):
 @rpg_bp.route("/api/rpg/worlds/submit", methods=["POST"])
 @login_required
 def submit_world():
+    client_ip = request.remote_addr
+    if not check_rate_limit('submit_world', client_ip, max_attempts=3, window=3600):
+        return jsonify({"error": "投稿过于频繁，请1小时后再试"}), 429
     data = request.json
     wid = data.get("id", "").strip()
     name = data.get("name", "").strip()
@@ -420,11 +423,18 @@ def start_rpg():
         {"role": "user", "content": f"玩家名称为「{player_name}」。游戏开始，请描述开场场景并输出所有强制段。"}
     ]
 
+    personal = using_personal_api()
+    max_tokens = world.get("max_tokens", 1500)
+    max_cost = calc_token_cost(max_tokens, credits_per_1k) if not personal else 0
+
+    if not personal and not deduct_credits(current_user, max_cost):
+        return jsonify({"error": f"积分不足（需要 {max_cost} 积分）"}), 402
+
     try:
         story, sections, tokens = call_ai(messages,
                         model=model,
                         temperature=world.get("temperature", 0.85),
-                        max_tokens=world.get("max_tokens", 1500))
+                        max_tokens=max_tokens)
     except Exception as e:
         logger.error(f"start_rpg AI call failed: {e}")
         story = None
@@ -439,16 +449,18 @@ def start_rpg():
     state_str = sections.get("状态", "")
     rels_str = sections.get("关系", "")
 
-    # [AUDIT-S19] start_rpg 先调用 AI API (line 424) 后扣费
-    personal = using_personal_api()
-    cost = calc_token_cost(tokens, credits_per_1k) if not personal else 0
-    if not personal and not deduct_credits(current_user, cost):
-        return jsonify({"error": f"积分不足（需要 {cost} 积分）"}), 402
     if not personal:
+        actual_cost = calc_token_cost(tokens, credits_per_1k)
+        refund = max_cost - actual_cost
+        if refund > 0:
+            db.session.execute(
+                db.text("UPDATE user SET credits = credits + :refund WHERE id = :uid"),
+                {"refund": refund, "uid": current_user.id}
+            )
         current_user.total_tokens = (current_user.total_tokens or 0) + tokens
         db.session.commit()
 
-    log_usage(current_user.id, current_user.username, model, tokens, cost, "rpg_start")
+    log_usage(current_user.id, current_user.username, model, tokens, actual_cost, "rpg_start")
 
     if len(rpg_sessions) >= 500:
         oldest = sorted(rpg_sessions.keys(), key=lambda x: rpg_sessions[x].get("created_at", ""))[:50]
@@ -504,6 +516,13 @@ def rpg_act():
     if not world:
         return jsonify({"error": "世界数据已丢失"}), 404
 
+    personal = using_personal_api()
+    max_tokens = world.get("max_tokens", 1500)
+    max_cost = calc_token_cost(max_tokens, credits_per_1k) if not personal else 0
+
+    if not personal and not deduct_credits(current_user, max_cost):
+        return jsonify({"error": f"积分不足（需要 {max_cost} 积分）"}), 402
+
     session["history"].append({"role": "assistant", "content": session["last_story"]})
 
     ctx = f"我选择：{choice}"
@@ -522,7 +541,7 @@ def rpg_act():
         story, sections, tokens = call_ai(session["history"],
                         model=model,
                         temperature=world.get("temperature", 0.85),
-                        max_tokens=world.get("max_tokens", 1500))
+                        max_tokens=max_tokens)
     except Exception as e:
         logger.error(f"rpg_act AI call failed: {e}")
         story = None
@@ -540,17 +559,18 @@ def rpg_act():
             sections[k] = v
     state_str = sections.get("状态", "")
 
-    # [AUDIT-S17] rpg_act 先调用 AI API (line 521) 后扣费，竞态条件
-    personal = using_personal_api()
-    cost = calc_token_cost(tokens, credits_per_1k) if not personal else 0
-    if not personal and not deduct_credits(current_user, cost):
-        return jsonify({"error": f"积分不足（需要 {cost} 积分）"}), 402
-
     if not personal:
+        actual_cost = calc_token_cost(tokens, credits_per_1k)
+        refund = max_cost - actual_cost
+        if refund > 0:
+            db.session.execute(
+                db.text("UPDATE user SET credits = credits + :refund WHERE id = :uid"),
+                {"refund": refund, "uid": current_user.id}
+            )
         current_user.total_tokens = (current_user.total_tokens or 0) + tokens
         db.session.commit()
 
-    log_usage(current_user.id, current_user.username, model, tokens, cost, "rpg_act")
+    log_usage(current_user.id, current_user.username, model, tokens, actual_cost, "rpg_act")
 
     session["last_story"] = story
     session["sections"] = sections
@@ -607,6 +627,13 @@ def rpg_act_stream():
     user_id = current_user.id
     username = current_user.username
     user_credits = current_user.credits
+
+    personal = using_personal_api()
+    max_tokens = world.get("max_tokens", 1500)
+    max_cost = calc_token_cost(max_tokens, credits_per_1k) if (not personal and credits_per_1k > 0) else 0
+
+    if not personal and credits_per_1k > 0 and not deduct_credits(current_user, max_cost):
+        return jsonify({"error": f"积分不足（需要 {max_cost} 积分）"}), 402
 
     def generate():
         import json as _json
@@ -701,18 +728,17 @@ def rpg_act_stream():
             if k not in sections and k != "关系_map":
                 sections[k] = v
         state_str = sections.get("状态", "")
-        personal = using_personal_api()
         total_tokens = estimate_tokens(full_text)
-        cost = calc_token_cost(total_tokens, credits_per_1k) if (not personal and credits_per_1k > 0) else 0
+        actual_cost = calc_token_cost(total_tokens, credits_per_1k) if (not personal and credits_per_1k > 0) else 0
 
-        db_user = User.query.get(user_id)
-        if not db_user:
-            yield f"data: {_json.dumps({'type':'error','text':'用户不存在'})}\n\n"
-            return
-
-        if not personal and credits_per_1k > 0 and not deduct_credits(db_user, cost):
-            yield f"data: {_json.dumps({'type':'error','text':f'积分不足（需要 {cost} 积分）'})}\n\n"
-            return
+        if not personal and credits_per_1k > 0:
+            refund = max_cost - actual_cost
+            if refund > 0:
+                db.session.execute(
+                    db.text("UPDATE user SET credits = credits + :refund WHERE id = :uid"),
+                    {"refund": refund, "uid": user_id}
+                )
+                db.session.commit()
 
         rmap = _parse_relationships(sections.get("关系", ""))
         sections["关系_map"] = rmap
@@ -726,12 +752,12 @@ def rpg_act_stream():
         sess.setdefault("state_log", []).append({"round": rnd, "sections": dict(sections)})
         sess["storyline"].append({"round": rnd, "choice": choice, "story": story[:150], "sections": dict(sections)})
         save_sessions()
-        log_usage(user_id, username, model, total_tokens, cost, "rpg_act_stream")
+        log_usage(user_id, username, model, total_tokens, actual_cost, "rpg_act_stream")
 
         db_user = User.query.get(user_id)
         final_credits = db_user.credits if db_user else user_credits
 
-        yield f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':cost,'credits_left':final_credits,'free':personal})}\n\n"
+        yield f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':actual_cost,'credits_left':final_credits,'free':personal})}\n\n"
 
     response = Response(stream_with_context(generate()), mimetype="text/event-stream")
     return response

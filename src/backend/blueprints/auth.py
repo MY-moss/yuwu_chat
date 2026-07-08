@@ -124,6 +124,9 @@ def logout():
 @auth_bp.route("/change-password", methods=["POST"])
 @login_required
 def change_password():
+    client_ip = request.remote_addr
+    if not check_rate_limit('change_password', client_ip, max_attempts=5, window=300):
+        return jsonify({"error": "操作过于频繁，请5分钟后再试"}), 429
     data = request.json
     old_password = data.get("old_password")
     new_password = data.get("new_password")
@@ -164,10 +167,10 @@ def get_current_user():
 
 @auth_bp.route("/ping", methods=["POST"])
 @login_required
-def ping_active():
+def ping():
     current_user.last_active = datetime.now()
     db.session.commit()
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "message": "session active"})
 
 
 @auth_bp.route("/api-config", methods=["GET", "PUT"])

@@ -16,34 +16,8 @@ export function renderMarkdown(text) {
              .replace(/\\'/g, "'")
              .replace(/\\\\/g, '\\');
 
-    if (mdCache.size > 100) mdCache.clear();  // [AUDIT-Q19] 超过100条时全清，应 LRU 逐出
+    if (mdCache.size > 100) mdCache.clear();
 
-    // [AUDIT-X02] 自定义 safeHtml 正则解析器可被绕过（先 strip 引号再解析属性），建议替换为 DOMPurify.sanitize()
-    function safeHtml(html) {
-        const tags = ['b','i','em','strong','a','pre','code','ul','ol','li','p','br','h1','h2','h3','h4','h5','h6','blockquote','hr','table','thead','tbody','tr','th','td','span','div','img'];
-        const allowed = new RegExp('^(' + tags.join('|') + ')$', 'i');
-        const attrAllow = new Set(['href','src','alt','title','class','target','rel']);
-        return html.replace(/<[^>]*>/g, function(m) {
-            if (m.startsWith('</')) {
-                const tag = m.slice(2, -1).trim();
-                return allowed.test(tag) ? m : '';
-            }
-            const m2 = m.match(/^\s*<(\/?)([\w-]+)(.*?)\/?\s*>$/);
-            if (!m2) return '';
-            const tag = m2[2], rest = m2[3];
-            if (!allowed.test(tag)) return '';
-            const attrs = rest.replace(/['"]/g, '').match(/([\w-]+)(?:=['"][^'"]*['"])?/g) || [];
-            const safe = attrs.filter(a => {
-                const eq = a.indexOf('=');
-                const name = eq === -1 ? a : a.slice(0, eq);
-                const value = eq === -1 ? '' : a.slice(eq + 1);
-                if (!attrAllow.has(name) || name.startsWith('on')) return false;
-                if ((name === 'href' || name === 'src') && /^\s*(javascript|data|vbscript):/i.test(value)) return false;
-                return true;
-            }).join(' ');
-            return safe ? '<' + tag + ' ' + safe + '>' : '<' + tag + '>';
-        });
-    }
     let result;
     try {
         if (typeof marked !== 'undefined') {
@@ -52,7 +26,7 @@ export function renderMarkdown(text) {
             if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
                 result = DOMPurify.sanitize(html, { ADD_TAGS: ['pre', 'code'], ADD_ATTR: ['class'] });
             } else {
-                result = safeHtml(html);
+                result = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             }
         } else {
             result = raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
@@ -104,7 +78,7 @@ export function renderStory(text) {
     if (!storyText) return;
     storyText.innerHTML = renderMarkdown(text);
     if (storyBox) storyBox.scrollTop = 0;
-    setTimeout(() => highlightCode(), 0);
+    setTimeout(() => highlightCode(storyText), 0);
 }
 
 // --- Personal Panel Rendering ---

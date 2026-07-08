@@ -38,6 +38,8 @@ def admin_add_model():
 
     if not model_id or not name or not label:
         return jsonify({"error": "model_id、name和label不能为空"}), 400
+    if len(model_id) > 200 or len(name) > 100 or len(label) > 100:
+        return jsonify({"error": "输入长度超限（model_id≤200, name/label≤100）"}), 400
     if ModelConfig.query.filter_by(model_id=model_id).first():
         return jsonify({"error": "该模型已存在"}), 400
     try:
@@ -81,8 +83,12 @@ def admin_update_model(model_id):
 
     data = request.json
     if "name" in data:
+        if len(str(data["name"])) > 100:
+            return jsonify({"error": "name长度不能超过100"}), 400
         model.name = data["name"]
     if "label" in data:
+        if len(str(data["label"])) > 100:
+            return jsonify({"error": "label长度不能超过100"}), 400
         model.label = data["label"]
     if "credits_per_1k" in data:
         model.credits_per_1k = int(data["credits_per_1k"])
@@ -327,11 +333,15 @@ def update_api_config_route():
             db.session.add(ApiConfig(key_name="API_KEY", value=encrypt_value(data["api_key"].strip())))
     # [AUDIT-S20] API URL 直接存储，缺少 is_safe_url 验证
     if "api_url" in data and data["api_url"].strip():
+        api_url = data["api_url"].strip()
+        safe, msg = is_safe_url(api_url)
+        if not safe:
+            return jsonify({"error": "API地址不安全: " + msg}), 400
         cfg = ApiConfig.query.filter_by(key_name="API_URL").first()
         if cfg:
-            cfg.value = data["api_url"].strip()
+            cfg.value = api_url
         else:
-            db.session.add(ApiConfig(key_name="API_URL", value=data["api_url"].strip()))
+            db.session.add(ApiConfig(key_name="API_URL", value=api_url))
     db.session.commit()
     return jsonify({"status": "ok"})
 

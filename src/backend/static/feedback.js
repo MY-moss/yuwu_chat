@@ -9,6 +9,7 @@ let currentPage = 1;
 let currentUser = null;
 let isAdmin = false;
 let csrfToken = '';
+let currentRating = 3;
 
 const $ = id => document.getElementById(id);
 const toastContainer = $('toastContainer');
@@ -32,7 +33,7 @@ function formatDate(isoString) {
 }
 
 function toast(msg, type) {
-    if (!msg) return;
+    if (!msg || !toastContainer) return;
     const d = document.createElement('div');
     d.className = 'toast ' + (type || 'info');
     d.textContent = msg;
@@ -123,7 +124,6 @@ async function init() {
 // ============================================================
 function setupRating() {
     const stars = document.querySelectorAll('.fb-star');
-    let currentRating = 3;
     stars.forEach(star => {
         star.addEventListener('click', () => {
             currentRating = parseInt(star.dataset.value);
@@ -192,6 +192,11 @@ function setupFormSubmit() {
                 toast(res.message || '提交成功！', 'success');
                 $('fbTitle').value = '';
                 $('fbContent').value = '';
+                $('fbCategory').value = 'suggestion';
+                currentRating = 3;
+                document.querySelectorAll('.fb-star').forEach(s => {
+                    s.classList.toggle('active', parseInt(s.dataset.value) <= 3);
+                });
                 currentPage = 1;
                 loadFeedbackList();
                 if (isAdmin) loadStats();

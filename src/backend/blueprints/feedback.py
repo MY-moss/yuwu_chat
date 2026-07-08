@@ -5,6 +5,7 @@ import collections
 from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
 from models import db, Feedback
+from utils.json_io import check_rate_limit
 
 feedback_bp = Blueprint('feedback', __name__)
 
@@ -19,6 +20,9 @@ def feedback_page():
 @feedback_bp.route("/api/feedback", methods=["POST"])
 @login_required
 def submit_feedback():
+    client_ip = request.remote_addr
+    if not check_rate_limit('feedback', client_ip, max_attempts=5, window=300):
+        return jsonify({"error": "提交过于频繁，请5分钟后再试"}), 429
     data = request.json
     title = (data.get("title", "") or "").strip()
     content = (data.get("content", "") or "").strip()

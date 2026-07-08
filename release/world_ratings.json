@@ -1,3 +1,21 @@
 {
-  "ratings": {}
+  "ratings": {},
+  "dynasty-manager": [
+    {
+      "user_id": 1,
+      "username": "admin",
+      "rating": 5,
+      "review": "",
+      "created_at": "2026-07-04T17:59:11.990265"
+    }
+  ],
+  "shi1": [
+    {
+      "user_id": 1,
+      "username": "admin",
+      "rating": 5,
+      "review": "",
+      "created_at": "2026-07-04T17:59:15.210330"
+    }
+  ]
 }

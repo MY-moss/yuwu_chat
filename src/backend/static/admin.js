@@ -36,6 +36,7 @@ export async function loadAdminModels() {
 }
 
 async function editAdminModel(id) {
+    if (!Number.isInteger(id) || id <= 0) { toast('无效的模型ID'); return; }
     state.editingModelId = id;
     const models = await api('/api/admin/models');
     const m = models.find(x => x.id === id);
@@ -54,6 +55,7 @@ async function editAdminModel(id) {
 }
 
 async function deleteAdminModel(id) {
+    if (!Number.isInteger(id) || id <= 0) { toast('无效的模型ID'); return; }
     if (!confirm('确定要删除这个模型吗？')) return;
     await api(`/api/admin/models/${id}`, { method: 'DELETE' });
     loadAdminModels();
@@ -85,6 +87,7 @@ export async function loadAdminUsers() {
 }
 
 async function editAdminUser(id) {
+    if (!Number.isInteger(id) || id <= 0) { toast('无效的用户ID'); return; }
     const users = await api('/api/admin/users');
     const u = users.find(x => x.id === id);
     if (!u) return;
@@ -103,6 +106,7 @@ async function editAdminUser(id) {
 }
 
 async function deleteAdminUser(id) {
+    if (!Number.isInteger(id) || id <= 0) { toast('无效的用户ID'); return; }
     if (!confirm('确定要删除这个用户吗？')) return;
     await api(`/api/admin/users/${id}`, { method: 'DELETE' });
     loadAdminUsers();
@@ -132,6 +136,7 @@ export async function loadAdminKeys() {
 }
 
 async function deleteKey(id) {
+    if (!Number.isInteger(id) || id <= 0) { toast('无效的密钥ID'); return; }
     if (!confirm('确定要删除这个未使用的密钥吗？')) return;
     await api(`/api/admin/credit-keys/${id}`, { method: 'DELETE' });
     loadAdminKeys();

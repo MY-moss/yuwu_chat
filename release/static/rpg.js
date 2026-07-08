@@ -6,6 +6,13 @@ import { $, toast, escapeHtml, showLoading, hideLoading, updateProgress, updateL
 import { api, apiStream } from './api.js';
 import { renderMarkdown, highlightCode, cleanText, renderStory, renderStatus, parseStatusValue } from './renderer.js';
 
+const LOADING_STATES = [
+    '正在初始化游戏世界...',
+    'AI 主持人正在构思剧情...',
+    '正在生成开场场景...',
+    '即将进入冒险...'
+];
+
 // ============================================================
 // 区块 07 · 会话管理
 // ============================================================
@@ -295,16 +302,10 @@ export async function startGame(worldId) {
 
     showLoading('📖 世界正在苏醒...', 'AI 主持人正在构建初始场景');
 
-    const loadingStates = [
-        '正在初始化游戏世界...',
-        'AI 主持人正在构思剧情...',
-        '正在生成开场场景...',
-        '即将进入冒险...'
-    ];
     let stateIdx = 0;
     const loadingTimer = setInterval(() => {
-        stateIdx = (stateIdx + 1) % loadingStates.length;
-        updateLoadingStatus(loadingStates[stateIdx]);
+        stateIdx = (stateIdx + 1) % LOADING_STATES.length;
+        updateLoadingStatus(LOADING_STATES[stateIdx]);
     }, 1500);
 
     state.rpgAbortController = new AbortController();

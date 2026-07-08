@@ -193,7 +193,7 @@ export function togglePreview() {
         const text = $('messageInput').value;
         content.innerHTML = text ? renderMarkdown(text) : '<span style="color:var(--text-dim);">输入内容后预览效果</span>';
         panel.style.display = 'block';
-        setTimeout(() => highlightCode(), 0);
+        setTimeout(() => highlightCode(content), 0);
     } else {
         panel.style.display = 'none';
     }
@@ -378,15 +378,17 @@ export function initAuth() {
     });
 
     const messageInput = $('messageInput');
-    messageInput?.addEventListener('input', () => {
-        const panel = $('previewPanel');
-        const content = $('previewContent');
-        if (panel && content && panel.style.display !== 'none') {
-            const text = messageInput.value;
-            content.innerHTML = text ? renderMarkdown(text) : '<span style="color:var(--text-dim);">输入内容后预览效果</span>';
-            setTimeout(() => highlightCode(), 0);
-        }
-    });
+    if (messageInput) {
+        messageInput.oninput = () => {
+            const panel = $('previewPanel');
+            const content = $('previewContent');
+            if (panel && content && panel.style.display !== 'none') {
+                const text = messageInput.value;
+                content.innerHTML = text ? renderMarkdown(text) : '<span style="color:var(--text-dim);">输入内容后预览效果</span>';
+                setTimeout(() => highlightCode(content), 0);
+            }
+        };
+    }
 }
 
 // ===== END OF FILE =====

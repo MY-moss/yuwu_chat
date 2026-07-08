@@ -20,7 +20,7 @@ export function initExchange() {
     redeemModal?.addEventListener('click', e => { if (e.target === redeemModal) redeemModal.classList.remove('show'); });
 
     $('redeemSubmitBtn')?.addEventListener('click', async () => {
-        const code = $('redeemCode').value.trim().toUpperCase();
+        const code = ($('redeemCode')?.value || '').trim().toUpperCase();
         if (!code) { $('redeemMsg').textContent = '❌ 请输入密钥'; return; }
         $('redeemSubmitBtn').disabled = true;
         $('redeemMsg').textContent = '⏳ 兑换中...';
@@ -83,7 +83,7 @@ export function initExchange() {
         if (editingId) {
             res = await api(`/api/rpg/worlds/submissions/${editingId}`, { method: 'PUT', body: JSON.stringify(data) });
         } else {
-            data.id = $('sEditId').value.trim();
+            data.id = ($('sEditId')?.value || '').trim();
             res = await api('/api/rpg/worlds/submit', { method: 'POST', body: JSON.stringify(data) });
         }
         if (res.error) { toast(res.error); return; }

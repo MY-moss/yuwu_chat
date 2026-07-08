@@ -211,7 +211,7 @@ def _resolve_judgment(judgment_text, sections=None):
     """Parse a 【判定】 section from AI output, roll dice server-side, return formatted result string."""
     text = judgment_text.strip()
 
-    JUDGE_ATTRS = r'(力量|敏捷|智力|魅力|体质|感知|意志|幸运|洞察|潜行|说服|威吓|表演|巧手|运动|察觉|调查|生存|自然|宗教|历史|医疗|洞悉|欺瞒|威逼|表演|手上功夫)'
+    JUDGE_ATTRS = r'(力量|敏捷|智力|魅力|体质|感知|意志|幸运|洞察|潜行|说服|威吓|表演|巧手|运动|察觉|调查|生存|自然|宗教|历史|医疗|洞悉|欺瞒|威逼|手上功夫)'
     attr_match = re.search(JUDGE_ATTRS, text)
 
     dc_match = re.search(r'难度[：:]\s*(\d+)', text)

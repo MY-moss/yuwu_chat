@@ -45,7 +45,7 @@ def unauthorized():
 
 
 def migrate_json_to_sqlite():
-    tables = [r[0] for r in db.session.execute(db.text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()]
+    tables = [row[0] for row in db.session.execute(db.text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()]
     migrated = {}
     for t in ['agent', 'world_book', 'world_rating', 'world_submission', 'usage_log']:
         migrated[t] = t in tables
@@ -96,13 +96,13 @@ def migrate_json_to_sqlite():
             try:
                 data = _cached_json_load(RATINGS_FILE, {})
                 for wid, ratings in data.items():
-                    for r in ratings:
+                    for rating in ratings:
                         db.session.add(WorldRating(
-                            world_id=wid, user_id=r.get('user_id'),
-                            username=r.get('username', ''),
-                            rating=r.get('rating', 3),
-                            review=r.get('review', ''),
-                            created_at=datetime.fromisoformat(r.get('created_at', datetime.now().isoformat()))
+                            world_id=wid, user_id=rating.get('user_id'),
+                            username=rating.get('username', ''),
+                            rating=rating.get('rating', 3),
+                            review=rating.get('review', ''),
+                            created_at=datetime.fromisoformat(rating.get('created_at', datetime.now().isoformat()))
                         ))
                 db.session.commit()
                 logger.info("Migrated ratings from JSON to SQLite")
@@ -137,23 +137,27 @@ def migrate_json_to_sqlite():
             try:
                 data = _cached_json_load(USAGE_LOG_FILE, [])
                 logs = data if isinstance(data, list) else data.get('logs', [])
-                for l in logs[-5000:]:
+                failed_count = 0
+                for log_entry in logs[-5000:]:
                     try:
-                        ts = l.get('time', l.get('created_at', datetime.now().isoformat()))
+                        ts = log_entry.get('time', log_entry.get('created_at', datetime.now().isoformat()))
+                        created_at = datetime.fromisoformat(ts.replace('Z', '+00:00'))
                         db.session.add(UsageLog(
-                            user_id=l.get('user_id', 0),
-                            username=l.get('username', ''),
-                            model=l.get('model', ''),
-                            tokens=l.get('tokens', 0),
-                            cost=l.get('cost', 0),
-                            endpoint=l.get('endpoint', 'chat'),
-                            # [AUDIT-N10] ts.replace('Z','+00:00').split('+')[0] 截断时区信息导致日期错误
-                        created_at=datetime.fromisoformat(ts.replace('Z', '+00:00').split('+')[0])
+                            user_id=log_entry.get('user_id', 0),
+                            username=log_entry.get('username', ''),
+                            model=log_entry.get('model', ''),
+                            tokens=log_entry.get('tokens', 0),
+                            cost=log_entry.get('cost', 0),
+                            endpoint=log_entry.get('endpoint', 'chat'),
+                            created_at=created_at
                         ))
-                    # [AUDIT-E01] except pass 静默吞掉所有行错误，迁移数据损坏不可见
-                    except Exception: pass
+                    except Exception as row_e:
+                        failed_count += 1
+                        logger.warning(f"UsageLog row migration failed: {row_e}")
                 db.session.commit()
-                logger.info(f"Migrated usage logs from JSON to SQLite")
+                logger.info(f"Migrated usage logs from JSON to SQLite (failed rows: {failed_count})")
+                if failed_count > 0:
+                    logger.warning(f"UsageLog migration: {failed_count} rows failed to migrate")
             except Exception as e:
                 db.session.rollback()
                 logger.warning(f"UsageLog migration skipped: {e}")
@@ -163,7 +167,7 @@ def init_db():
     db.create_all()
     migrate_json_to_sqlite()
     try:
-        cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(user_model_config)")).fetchall()]
+        cols = [col[1] for col in db.session.execute(db.text("PRAGMA table_info(user_model_config)")).fetchall()]
         if 'api_base' not in cols:
             db.session.execute(db.text("ALTER TABLE user_model_config ADD COLUMN api_base VARCHAR(500)"))
         if 'api_key' not in cols:
@@ -173,7 +177,7 @@ def init_db():
         db.session.rollback()
         logger.warning(f"user_model_config migration: {e}")
     try:
-        user_cols = [r[1] for r in db.session.execute(db.text("PRAGMA table_info(user)")).fetchall()]
+        user_cols = [col[1] for col in db.session.execute(db.text("PRAGMA table_info(user)")).fetchall()]
         if 'token_version' not in user_cols:
             db.session.execute(db.text("ALTER TABLE user ADD COLUMN token_version INTEGER DEFAULT 1"))
             db.session.execute(db.text("UPDATE user SET token_version = 1 WHERE token_version IS NULL"))
@@ -247,8 +251,9 @@ def create_app():
         app.secret_key = _secret_key
 
     # ===== 日志配置 =====
+    log_level = getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper(), logging.INFO)
     logging.basicConfig(
-        level=logging.INFO,
+        level=log_level,
         format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
         handlers=[
             logging.StreamHandler(),
@@ -292,14 +297,12 @@ def create_app():
             return
         csrf_token = request.headers.get('X-CSRF-Token', '')
         session_token = session.get('_csrf_token', '')
-        if csrf_token != session_token:
+        if not secrets.compare_digest(csrf_token, session_token):
             return jsonify({"error": "CSRF token invalid"}), 403
 
     @app.route('/api/csrf-token')
     def get_csrf_token():
-        if '_csrf_token' not in session:
-            session['_csrf_token'] = secrets.token_hex(16)
-        return jsonify({"csrf_token": session['_csrf_token']})
+        return jsonify({"csrf_token": session.get('_csrf_token', '')})
 
     @app.after_request
     def add_security_and_cache_headers(response):
@@ -309,7 +312,6 @@ def create_app():
             response.headers.pop('Expires', None)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
         # response.headers['Content-Security-Policy'] = (
         #     "default-src 'self'; "
         #     "script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
@@ -341,14 +343,14 @@ def create_app():
 
     @app.errorhandler(500)
     def server_error(e):
-        # [AUDIT-E02] 无 traceback 日志，无法定位 500 错误根因
-        app.logger.error(f"500 error: {e}")
+        import traceback
+        app.logger.error(f"500 error: {e}\n{traceback.format_exc()}")
         if request.path.startswith('/api/'):
             return jsonify({"error": "服务器内部错误"}), 500
         return render_template('error.html', code=500, message="服务器内部错误"), 500
 
     # ===== 启动自检 =====
-    rules = [r.rule for r in app.url_map.iter_rules() if 'csrf' in r.rule]
+    rules = [rule.rule for rule in app.url_map.iter_rules() if 'csrf' in rule.rule]
     if not rules:
         logger.error("ROUTE MISSING: /api/csrf-token 未注册！")
     else:
@@ -361,8 +363,7 @@ def create_app():
 # 区块 22 · 启动入口
 # ============================================================
 # [AUDIT-P12] 使用 Flask 内置 dev server 生产部署，建议 gunicorn/waitress
-# [AUDIT-Q12] 无 main() 函数，启动逻辑在 if __name__ 顶层级
-if __name__ == "__main__":
+def main():
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
     app = create_app()
@@ -381,10 +382,8 @@ if __name__ == "__main__":
     with app.app_context():
         agents = load_agents()
         api_key, api_url = get_effective_api()
+        world_count = WorldBook.query.count()
     print(f"[TAVERN] 酒馆已开门 | 版本: {VERSION}")
-    with open(WORLDS_FILE, "r", encoding="utf-8") as f:
-        world_data = json.load(f)
-        world_count = len(world_data.get("worlds", []))
     print(f"[MODE]  聊天: {len(agents)} 位智能体 | 跑团: {world_count} 本世界书 | 反馈: /feedback | 已恢复 {len(rpg_sessions)} 个跑团会话")
     if api_key:
         print(f"[AI]   状态: 已连接")
@@ -394,3 +393,7 @@ if __name__ == "__main__":
     print(f"[URL]  http://{host}:9000")
     port = int(os.getenv("PORT", "9000"))
     app.run(debug=False, host=host, port=port)
+
+
+if __name__ == "__main__":
+    main()

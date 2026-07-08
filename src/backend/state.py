@@ -20,10 +20,3 @@ _ratings_lock = threading.Lock()
 _submissions_lock = threading.Lock()
 _usage_log_lock = threading.Lock()
 
-# ===== 限流计数（DB 兜底，内存计数为兼容保留）=====
-_login_attempts = {}
-_login_lock = threading.Lock()
-_register_attempts = {}
-_register_lock = threading.Lock()
-_redeem_attempts = {}
-_redeem_lock = threading.Lock()

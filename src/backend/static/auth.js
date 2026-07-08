@@ -193,7 +193,7 @@ export function togglePreview() {
         const text = $('messageInput').value;
         content.innerHTML = text ? renderMarkdown(text) : '<span style="color:var(--text-dim);">输入内容后预览效果</span>';
         panel.style.display = 'block';
-        setTimeout(() => highlightCode(), 0);
+        setTimeout(() => highlightCode(content), 0);
     } else {
         panel.style.display = 'none';
     }
@@ -251,20 +251,24 @@ async function changePassword() {
     }
 }
 
-function showForcePasswordChange() {
+async function showForcePasswordChange() {
     const pwd = $("loginPassword").value.trim();
     if (!pwd || pwd.length < 8) {
-        logout();  // [AUDIT-E06] logout() 未 await，后续 api() 请求可能携带旧认证状态
+        await logout();
         return;
     }
     toast("正在更新密码...");
-    api("/api/auth/change-password", {
-        method: "POST",
-        body: JSON.stringify({ old_password: $("loginPassword").value, new_password: pwd })
-    }).then(data => {
-        if (data.error) { toast(data.error); logout(); }
+    try {
+        const data = await api("/api/auth/change-password", {
+            method: "POST",
+            body: JSON.stringify({ old_password: $("loginPassword").value, new_password: pwd })
+        });
+        if (data.error) { toast(data.error); await logout(); }
         else { toast("密码已更新，欢迎回来！"); showMainScreen(); }
-    }).catch(() => { toast("密码更新失败，请重试"); logout(); });
+    } catch (e) {
+        toast("密码更新失败，请重试");
+        await logout();
+    }
 }
 
 function showAuthError(msg) {
@@ -378,15 +382,17 @@ export function initAuth() {
     });
 
     const messageInput = $('messageInput');
-    messageInput?.addEventListener('input', () => {
-        const panel = $('previewPanel');
-        const content = $('previewContent');
-        if (panel && content && panel.style.display !== 'none') {
-            const text = messageInput.value;
-            content.innerHTML = text ? renderMarkdown(text) : '<span style="color:var(--text-dim);">输入内容后预览效果</span>';
-            setTimeout(() => highlightCode(), 0);
-        }
-    });
+    if (messageInput) {
+        messageInput.oninput = () => {
+            const panel = $('previewPanel');
+            const content = $('previewContent');
+            if (panel && content && panel.style.display !== 'none') {
+                const text = messageInput.value;
+                content.innerHTML = text ? renderMarkdown(text) : '<span style="color:var(--text-dim);">输入内容后预览效果</span>';
+                setTimeout(() => highlightCode(content), 0);
+            }
+        };
+    }
 }
 
 // ===== END OF FILE =====
