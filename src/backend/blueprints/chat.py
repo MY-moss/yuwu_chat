@@ -203,7 +203,7 @@ def chat():
             with requests.post(api_url, headers=headers, json=body, timeout=30) as resp:
                 if resp.status_code != 200:
                     logger.error(sanitize_log(f"chat API failed: {resp.status_code}"))
-                    raise Exception(f"API调用失败")
+                    raise Exception(f"API调用失败: HTTP {resp.status_code}")
                 result = resp.json()
                 reply = result["choices"][0]["message"]["content"]
                 total_tokens, _, _ = parse_usage(result)
@@ -217,6 +217,7 @@ def chat():
             reply = mock_reply(user_message, agent)
             total_tokens = 0
 
+        actual_cost = 0
         if not personal:
             actual_cost = calc_token_cost(total_tokens, credits_per_1k)
             refund = max_cost - actual_cost
@@ -263,5 +264,6 @@ def chat():
 @login_required
 def clear_history(agent_id):
     history_key = f"{current_user.id}_{agent_id}"
-    histories.pop(history_key, None)
+    with _histories_lock:
+        histories.pop(history_key, None)
     return jsonify({"status": "ok"})

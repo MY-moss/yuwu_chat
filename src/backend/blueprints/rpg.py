@@ -381,24 +381,27 @@ def spectate_page(share_token):
 @admin_required
 def admin_spectate_session(session_id):
     """Admin real-time spectate — no share_token needed"""
-    sess = rpg_sessions.get(session_id)
-    if not sess:
-        return jsonify({"error": "会话不存在"}), 404
+    with _sessions_lock:
+        sess = rpg_sessions.get(session_id)
+        if not sess:
+            return jsonify({"error": "会话不存在"}), 404
+        sections = sess.get("sections", {})
+        result = {
+            "player_name": sess.get("player_name", "?"),
+            "world": {},
+            "last_story": sess.get("last_story", ""),
+            "last_state": sess.get("last_state", sections.get("状态", "")),
+            "relationship": sections.get("关系_map", {}),
+            "sections": sections,
+            "storyline": sess.get("storyline", []),
+            "user_id": sess.get("user_id"),
+            "share_token": sess.get("share_token"),
+            "rounds": len(sess.get("storyline", []))
+        }
     worlds = load_worlds()
     w = next((w for w in worlds if w["id"] == sess.get("world_id", "")), {})
-    sections = sess.get("sections", {})
-    return jsonify({
-        "player_name": sess.get("player_name", "?"),
-        "world": {"name": w.get("name", "?"), "emoji": w.get("emoji", "📖")},
-        "last_story": sess.get("last_story", ""),
-        "last_state": sess.get("last_state", sections.get("状态", "")),
-        "relationship": sections.get("关系_map", {}),
-        "sections": sections,
-        "storyline": sess.get("storyline", []),
-        "user_id": sess.get("user_id"),
-        "share_token": sess.get("share_token"),
-        "rounds": len(sess.get("storyline", []))
-    })
+    result["world"] = {"name": w.get("name", "?"), "emoji": w.get("emoji", "📖")}
+    return jsonify(result)
 
 
 # ===== 跑团会话 =====
@@ -449,6 +452,7 @@ def start_rpg():
     state_str = sections.get("状态", "")
     rels_str = sections.get("关系", "")
 
+    actual_cost = 0
     if not personal:
         actual_cost = calc_token_cost(tokens, credits_per_1k)
         refund = max_cost - actual_cost
@@ -462,36 +466,38 @@ def start_rpg():
 
     log_usage(current_user.id, current_user.username, model, tokens, actual_cost, "rpg_start")
 
-    if len(rpg_sessions) >= 500:
-        oldest = sorted(rpg_sessions.keys(), key=lambda x: rpg_sessions[x].get("created_at", ""))[:50]
-        for k in oldest:
-            rpg_sessions.pop(k, None)
-        logger.warning(f"rpg_sessions capped at 500, evicted {len(oldest)} oldest")
+    with _sessions_lock:
+        if len(rpg_sessions) >= 500:
+            oldest = sorted(rpg_sessions.keys(), key=lambda x: rpg_sessions[x].get("created_at", ""))[:50]
+            for k in oldest:
+                rpg_sessions.pop(k, None)
+            logger.warning(f"rpg_sessions capped at 500, evicted {len(oldest)} oldest")
 
-    now = datetime.now().isoformat()
-    rpg_sessions[session_id] = {
-        "world_id": world_id, "player_name": player_name,
-        "user_id": current_user.id, "history": messages,
-        "last_story": story, "sections": sections,
-        "last_state": state_str, "model": model,
-        "storyline": [{"round": 0, "choice": "游戏开始", "story": story[:150], "sections": dict(sections)}],
-        "state_log": [{"round": 0, "sections": dict(sections)}],
-        "share_token": None, "created_at": now, "last_active": now, "priority": 3
-    }
-    save_sessions()
+        now = datetime.now().isoformat()
+        rpg_sessions[session_id] = {
+            "world_id": world_id, "player_name": player_name,
+            "user_id": current_user.id, "history": messages,
+            "last_story": story, "sections": sections,
+            "last_state": state_str, "model": model,
+            "storyline": [{"round": 0, "choice": "游戏开始", "story": story[:150], "sections": dict(sections)}],
+            "state_log": [{"round": 0, "sections": dict(sections)}],
+            "share_token": None, "created_at": now, "last_active": now, "priority": 3
+        }
+        save_sessions()
 
-    rmap = _parse_relationships(rels_str)
-    rpg_sessions[session_id]["sections"]["关系_map"] = rmap
+        rmap = _parse_relationships(rels_str)
+        rpg_sessions[session_id]["sections"]["关系_map"] = rmap
+        storyline = rpg_sessions[session_id]["storyline"]
 
     return jsonify({
         "session_id": session_id, "world": world,
         "story": story, "state": state_str,
         "relationships": rmap, "sections": sections,
         "player_name": player_name,
-        "storyline": rpg_sessions[session_id]["storyline"],
+        "storyline": storyline,
         "share_token": None,
         "credits_left": current_user.credits,
-        "tokens_used": tokens, "cost": cost, "free": personal
+        "tokens_used": tokens, "cost": actual_cost, "free": personal
     })
 
 
@@ -502,11 +508,12 @@ def rpg_act():
     session_id = data.get("session_id", "")
     choice = data.get("choice", "")
 
-    session = rpg_sessions.get(session_id)
-    if not session:
-        return jsonify({"error": "会话已过期或不存在"}), 404
-    if session["user_id"] != current_user.id:
-        return jsonify({"error": "无权访问此会话"}), 403
+    with _sessions_lock:
+        session = rpg_sessions.get(session_id)
+        if not session:
+            return jsonify({"error": "会话已过期或不存在"}), 404
+        if session["user_id"] != current_user.id:
+            return jsonify({"error": "无权访问此会话"}), 403
 
     model = data.get("model") or session.get("model", "mimo-v2.5-free")
     credits_per_1k = get_model_price(model)
@@ -572,27 +579,28 @@ def rpg_act():
 
     log_usage(current_user.id, current_user.username, model, tokens, actual_cost, "rpg_act")
 
-    session["last_story"] = story
-    session["sections"] = sections
-    session["last_state"] = state_str
-    session["last_active"] = datetime.now().isoformat()
-    session.setdefault("state_log", []).append({"round": len(session.get("storyline", [])), "sections": dict(sections)})
-    session["storyline"].append({
-        "round": len(session["storyline"]), "choice": choice,
-        "story": story[:150], "sections": dict(sections)
-    })
+    with _sessions_lock:
+        session["last_story"] = story
+        session["sections"] = sections
+        session["last_state"] = state_str
+        session["last_active"] = datetime.now().isoformat()
+        session.setdefault("state_log", []).append({"round": len(session.get("storyline", [])), "sections": dict(sections)})
+        session["storyline"].append({
+            "round": len(session["storyline"]), "choice": choice,
+            "story": story[:150], "sections": dict(sections)
+        })
 
-    rmap = _parse_relationships(sections.get("关系", ""))
-    sections["关系_map"] = rmap
+        rmap = _parse_relationships(sections.get("关系", ""))
+        sections["关系_map"] = rmap
 
-    save_sessions()
+        save_sessions()
 
     return jsonify({
         "story": story, "state": state_str,
         "storyline": session["storyline"],
         "relationships": rmap, "sections": sections,
         "credits_left": current_user.credits,
-        "tokens_used": tokens, "cost": cost, "free": personal
+        "tokens_used": tokens, "cost": actual_cost, "free": personal
     })
 
 
@@ -602,11 +610,12 @@ def rpg_act_stream():
     data = request.json
     session_id = data.get("session_id", "")
     choice = data.get("choice", "")
-    sess = rpg_sessions.get(session_id)
-    if not sess:
-        return jsonify({"error": "会话不存在"}), 404
-    if sess["user_id"] != current_user.id:
-        return jsonify({"error": "无权访问"}), 403
+    with _sessions_lock:
+        sess = rpg_sessions.get(session_id)
+        if not sess:
+            return jsonify({"error": "会话不存在"}), 404
+        if sess["user_id"] != current_user.id:
+            return jsonify({"error": "无权访问"}), 403
 
     model = data.get("model") or sess.get("model", "mimo-v2.5-free")
     worlds = load_worlds()
@@ -638,18 +647,30 @@ def rpg_act_stream():
     def generate():
         import json as _json
         total_tokens = 0
+
+        def refund_full():
+            if not personal and credits_per_1k > 0:
+                db.session.execute(
+                    db.text("UPDATE user SET credits = credits + :refund WHERE id = :uid"),
+                    {"refund": max_cost, "uid": user_id}
+                )
+                db.session.commit()
+
         if not api_key:
+            refund_full()
             mock_text = "【状态】\n生命值:100/100\n法力值:50/50\n\n（AI 暂未配置，请管理员在面板中配置 API 密钥）"
             for ch in mock_text:
                 yield f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"
             yield f"data: {_json.dumps({'type':'done'})}\n\n"
             return
         if not api_url:
+            refund_full()
             logger.error("rpg_act_stream API URL is empty")
             yield f"data: {_json.dumps({'type':'error','text':'API地址配置不完整'})}\n\n"
             return
         safe, reason = is_safe_url(api_url)
         if not safe:
+            refund_full()
             logger.error(sanitize_log(f"rpg_act_stream API URL unsafe: {reason}"))
             yield f"data: {_json.dumps({'type':'error','text':'API地址配置不安全'})}\n\n"
             return
@@ -683,6 +704,7 @@ def rpg_act_stream():
                     except Exception as e:
                         err_body = ""
                         logger.error(sanitize_log(f"rpg_act_stream API {resp.status_code}: {e}"))
+                    refund_full()
                     yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
                     return
                 else:
@@ -714,6 +736,7 @@ def rpg_act_stream():
                                     pass
         except Exception as e:
             logger.error(f"rpg_act_stream: {e}")
+            refund_full()
             yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
             return
 
@@ -743,15 +766,17 @@ def rpg_act_stream():
         rmap = _parse_relationships(sections.get("关系", ""))
         sections["关系_map"] = rmap
 
-        sess["last_story"] = story
-        sess["sections"] = sections
-        sess["last_state"] = state_str
-        sess["last_active"] = datetime.now().isoformat()
-        sess["history"] = temp_history
-        rnd = len(sess.get("storyline", []))
-        sess.setdefault("state_log", []).append({"round": rnd, "sections": dict(sections)})
-        sess["storyline"].append({"round": rnd, "choice": choice, "story": story[:150], "sections": dict(sections)})
-        save_sessions()
+        with _sessions_lock:
+            sess["last_story"] = story
+            sess["sections"] = sections
+            sess["last_state"] = state_str
+            sess["last_active"] = datetime.now().isoformat()
+            sess["history"] = temp_history
+            rnd = len(sess.get("storyline", []))
+            sess.setdefault("state_log", []).append({"round": rnd, "sections": dict(sections)})
+            sess["storyline"].append({"round": rnd, "choice": choice, "story": story[:150], "sections": dict(sections)})
+            save_sessions()
+
         log_usage(user_id, username, model, total_tokens, actual_cost, "rpg_act_stream")
 
         db_user = User.query.get(user_id)
@@ -770,21 +795,22 @@ def list_sessions():
     world_map = {w["id"]: w for w in worlds}
 
     sessions = []
-    for sid, s in rpg_sessions.items():
-        if s.get("user_id") != current_user.id:
-            continue
-        w = world_map.get(s["world_id"], {})
-        sessions.append({
-            "session_id": sid,
-            "world_id": s["world_id"],
-            "world_name": w.get("name", "未知"),
-            "world_emoji": w.get("emoji", "📖"),
-            "player_name": s["player_name"],
-            "rounds": len(s.get("storyline", [])),
-            "priority": s.get("priority", 3),
-            "created_at": s.get("created_at", ""),
-            "last_active": s.get("last_active", "")
-        })
+    with _sessions_lock:
+        for sid, s in rpg_sessions.items():
+            if s.get("user_id") != current_user.id:
+                continue
+            w = world_map.get(s["world_id"], {})
+            sessions.append({
+                "session_id": sid,
+                "world_id": s["world_id"],
+                "world_name": w.get("name", "未知"),
+                "world_emoji": w.get("emoji", "📖"),
+                "player_name": s["player_name"],
+                "rounds": len(s.get("storyline", [])),
+                "priority": s.get("priority", 3),
+                "created_at": s.get("created_at", ""),
+                "last_active": s.get("last_active", "")
+            })
 
     sessions.sort(key=lambda x: (-x["priority"], x.get("last_active", "") or ""))
     return jsonify(sessions)
@@ -793,113 +819,119 @@ def list_sessions():
 @rpg_bp.route("/api/rpg/session/<session_id>", methods=["PUT"])
 @login_required
 def update_session(session_id):
-    session = rpg_sessions.get(session_id)
-    if not session:
-        return jsonify({"error": "会话不存在"}), 404
-    if session.get("user_id") != current_user.id:
-        return jsonify({"error": "无权访问此会话"}), 403
+    with _sessions_lock:
+        session = rpg_sessions.get(session_id)
+        if not session:
+            return jsonify({"error": "会话不存在"}), 404
+        if session.get("user_id") != current_user.id:
+            return jsonify({"error": "无权访问此会话"}), 403
 
-    data = request.json
-    if "priority" in data:
-        try:
-            p = int(data["priority"])
-            session["priority"] = max(1, min(5, p))
-            save_sessions()
-        except (ValueError, TypeError):
-            return jsonify({"error": "priority 必须为数字"}), 400
-    return jsonify({"status": "ok", "priority": session["priority"]})
+        data = request.json
+        if "priority" in data:
+            try:
+                p = int(data["priority"])
+                session["priority"] = max(1, min(5, p))
+                save_sessions()
+            except (ValueError, TypeError):
+                return jsonify({"error": "priority 必须为数字"}), 400
+        return jsonify({"status": "ok", "priority": session["priority"]})
 
 
 @rpg_bp.route("/api/rpg/session/<session_id>", methods=["GET"])
 @login_required
 def get_session(session_id):
-    session = rpg_sessions.get(session_id)
-    if not session:
-        return jsonify({"error": "会话不存在"}), 404
-    if session.get("user_id") != current_user.id and current_user.role != 'admin':
-        return jsonify({"error": "无权访问此会话"}), 403
+    with _sessions_lock:
+        session = rpg_sessions.get(session_id)
+        if not session:
+            return jsonify({"error": "会话不存在"}), 404
+        if session.get("user_id") != current_user.id and current_user.role != 'admin':
+            return jsonify({"error": "无权访问此会话"}), 403
 
-    sections = session.get("sections", {})
-    if not sections and session.get("last_state"):
-        sections = {"状态": session["last_state"]}
-    return jsonify({
-        "player_name": session["player_name"],
-        "world_id": session["world_id"],
-        "last_story": session["last_story"],
-        "last_state": session.get("last_state", ""),
-        "sections": sections,
-        "storyline": session.get("storyline", []),
-        "relationships": sections.get("关系_map", session.get("relationships", {})),
-        "state_log": session.get("state_log", []),
-        "share_token": session.get("share_token"),
-        "priority": session.get("priority", 3),
-        "last_active": session.get("last_active", "")
-    })
+        sections = session.get("sections", {})
+        if not sections and session.get("last_state"):
+            sections = {"状态": session["last_state"]}
+        result = {
+            "player_name": session["player_name"],
+            "world_id": session["world_id"],
+            "last_story": session["last_story"],
+            "last_state": session.get("last_state", ""),
+            "sections": sections,
+            "storyline": session.get("storyline", []),
+            "relationships": sections.get("关系_map", session.get("relationships", {})),
+            "state_log": session.get("state_log", []),
+            "share_token": session.get("share_token"),
+            "priority": session.get("priority", 3),
+            "last_active": session.get("last_active", "")
+        }
+    return jsonify(result)
 
 
 @rpg_bp.route("/api/rpg/session/<session_id>/branch", methods=["POST"])
 @login_required
 def branch_session(session_id):
-    sess = rpg_sessions.get(session_id)
-    if not sess:
-        return jsonify({"error": "会话不存在"}), 404
-    if sess.get("user_id") != current_user.id:
-        return jsonify({"error": "无权操作"}), 403
+    with _sessions_lock:
+        sess = rpg_sessions.get(session_id)
+        if not sess:
+            return jsonify({"error": "会话不存在"}), 404
+        if sess.get("user_id") != current_user.id:
+            return jsonify({"error": "无权操作"}), 403
 
-    data = request.json
-    target = int(data.get("round", 0))
-    storyline = sess.get("storyline", [])
-    if target < 0 or target >= len(storyline):
-        return jsonify({"error": "无效的回溯轮次"}), 400
+        data = request.json
+        target = int(data.get("round", 0))
+        storyline = sess.get("storyline", [])
+        if target < 0 or target >= len(storyline):
+            return jsonify({"error": "无效的回溯轮次"}), 400
 
-    sess["storyline"] = storyline[:target + 1]
-    state_log = sess.get("state_log", [])
-    sess["state_log"] = state_log[:target + 1] if state_log else []
-    last_entry = sess["storyline"][-1] if sess["storyline"] else {}
-    sess["last_story"] = last_entry.get("story", "")
-    last_sections = last_entry.get("sections", {})
-    sess["last_state"] = last_sections.get("状态", "") if isinstance(last_sections, dict) else str(last_sections)
-    sess["sections"] = last_sections
+        sess["storyline"] = storyline[:target + 1]
+        state_log = sess.get("state_log", [])
+        sess["state_log"] = state_log[:target + 1] if state_log else []
+        last_entry = sess["storyline"][-1] if sess["storyline"] else {}
+        sess["last_story"] = last_entry.get("story", "")
+        last_sections = last_entry.get("sections", {})
+        sess["last_state"] = last_sections.get("状态", "") if isinstance(last_sections, dict) else str(last_sections)
+        sess["sections"] = last_sections
 
-    history = sess.get("history", [])
-    if not history:
-        sess["history"] = []
-    else:
-        kept = [history[0]]
-        pair_count = 0
-        for msg in history[1:]:
-            if pair_count >= (target + 1) * 2:
-                break
-            kept.append(msg)
-            pair_count += 1
-        if len(kept) > 1 and kept[-1].get("role") == "assistant":
-            kept.pop()
-        sess["history"] = kept
-    sess["last_active"] = datetime.now().isoformat()
+        history = sess.get("history", [])
+        if not history:
+            sess["history"] = []
+        else:
+            kept = [history[0]]
+            pair_count = 0
+            for msg in history[1:]:
+                if pair_count >= (target + 1) * 2:
+                    break
+                kept.append(msg)
+                pair_count += 1
+            if len(kept) > 1 and kept[-1].get("role") == "assistant":
+                kept.pop()
+            sess["history"] = kept
+        sess["last_active"] = datetime.now().isoformat()
 
-    sess["sections"]["关系_map"] = _parse_relationships(last_sections.get("关系", ""))
+        sess["sections"]["关系_map"] = _parse_relationships(last_sections.get("关系", ""))
 
-    save_sessions()
+        save_sessions()
 
-    return jsonify({
-        "status": "ok",
-        "last_story": sess["last_story"],
-        "last_state": sess["last_state"],
-        "storyline": sess["storyline"],
-        "relationships": sess.get("sections", {}).get("关系_map", {})
-    })
+        result = {
+            "status": "ok",
+            "last_story": sess["last_story"],
+            "last_state": sess["last_state"],
+            "storyline": sess["storyline"],
+            "relationships": sess.get("sections", {}).get("关系_map", {})
+        }
+    return jsonify(result)
 
 
 @rpg_bp.route("/api/rpg/session/<session_id>", methods=["DELETE"])
 @login_required
 def delete_session(session_id):
-    sess = rpg_sessions.get(session_id)
-    if not sess:
-        return jsonify({"error": "会话不存在"}), 404
-    if sess.get("user_id") != current_user.id:
-        return jsonify({"error": "无权操作"}), 403
-    rpg_sessions.pop(session_id, None)
-    save_sessions()
+    with _sessions_lock:
+        sess = rpg_sessions.get(session_id)
+        if not sess:
+            return jsonify({"error": "会话不存在"}), 404
+        if sess.get("user_id") != current_user.id:
+            return jsonify({"error": "无权操作"}), 403
+        rpg_sessions.pop(session_id, None)
+        save_sessions()
     return jsonify({"status": "ok"})
 
 
@@ -915,11 +947,12 @@ def roll_dice():
     if not session_id:
         return jsonify({"error": "缺少会话ID"}), 400
 
-    sess = rpg_sessions.get(session_id)
-    if not sess:
-        return jsonify({"error": "会话不存在"}), 404
-    if sess.get("user_id") != current_user.id:
-        return jsonify({"error": "无权操作"}), 403
+    with _sessions_lock:
+        sess = rpg_sessions.get(session_id)
+        if not sess:
+            return jsonify({"error": "会话不存在"}), 404
+        if sess.get("user_id") != current_user.id:
+            return jsonify({"error": "无权操作"}), 403
 
     import random
     roll = random.randint(1, 20)

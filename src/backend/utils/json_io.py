@@ -12,7 +12,7 @@ from models import (db, Agent, WorldRating, WorldBook, WorldSubmission,
                     UsageLog, RateLimitEntry)
 from state import (rpg_sessions, _json_cache, _json_cache_mtime,
                    _sessions_lock, _ratings_lock, _worlds_lock,
-                   _submissions_lock, _usage_log_lock)
+                   _submissions_lock, _usage_log_lock, _json_cache_lock)
 from config import (BASE_PATH, AGENTS_FILE, WORLDS_FILE, RATINGS_FILE,
                     SUBMISSIONS_FILE, USAGE_LOG_FILE, SESSIONS_FILE,
                     VERSION_FILE, CHANGELOG_FILE, RPG_FORMAT_FILE)
@@ -47,37 +47,32 @@ def atomic_json_load(file_path, default=None):
         return default
 
 
-def load_version():
-    paths = [
-        VERSION_FILE,
-        os.path.join(os.getcwd(), "version.json"),
-    ]
-    for version_file in paths:
+def _load_json_from_paths(paths, encoding="utf-8"):
+    """从多个候选路径加载JSON，返回首个成功解析的结果，失败返回None。"""
+    for path in paths:
         try:
-            with open(version_file, "r", encoding="utf-8-sig") as f:
-                v = json.load(f)
-                build = v.get("build", 0)
-                if build > 0:
-                    return f"v{v['major']}.{v['minor']}.{v['patch']}.{build}"
-                return f"v{v['major']}.{v['minor']}.{v['patch']}"
+            with open(path, "r", encoding=encoding) as f:
+                return json.load(f)
         except Exception as e:
-            logger.error(f"load_version failed: {e}")
+            logger.error(f"_load_json_from_paths failed for {path}: {e}")
             continue
+    return None
+
+
+def load_version():
+    data = _load_json_from_paths([VERSION_FILE, os.path.join(os.getcwd(), "version.json")], encoding="utf-8-sig")
+    if data:
+        build = data.get("build", 0)
+        if build > 0:
+            return f"v{data['major']}.{data['minor']}.{data['patch']}.{build}"
+        return f"v{data['major']}.{data['minor']}.{data['patch']}"
     return "v1.0.0"
 
 
 def load_changelog():
-    paths = [
-        CHANGELOG_FILE,
-        os.path.join(os.getcwd(), "CHANGELOG.json"),
-    ]
-    for changelog_file in paths:
-        try:
-            with open(changelog_file, "r", encoding="utf-8") as f:
-                return json.load(f).get("history", [])
-        except Exception as e:
-            logger.error(f"load_changelog failed: {e}")
-            continue
+    data = _load_json_from_paths([CHANGELOG_FILE, os.path.join(os.getcwd(), "CHANGELOG.json")])
+    if data:
+        return data.get("history", [])
     return []
 
 
@@ -94,15 +89,17 @@ except Exception as e:
 
 def _cached_json_load(file_path, default=None):
     try:
-        if not os.path.exists(file_path):
-            return default
-        mtime = os.path.getmtime(file_path)
-        if file_path in _json_cache and _json_cache_mtime.get(file_path) == mtime:
-            return _json_cache[file_path]
+        with _json_cache_lock:
+            if not os.path.exists(file_path):
+                return default
+            mtime = os.path.getmtime(file_path)
+            if file_path in _json_cache and _json_cache_mtime.get(file_path) == mtime:
+                return _json_cache[file_path]
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        _json_cache[file_path] = data
-        _json_cache_mtime[file_path] = mtime
+        with _json_cache_lock:
+            _json_cache[file_path] = data
+            _json_cache_mtime[file_path] = mtime
         return data
     except Exception as e:
         logger.error(f"_cached_json_load failed for {file_path}: {e}")
@@ -110,8 +107,9 @@ def _cached_json_load(file_path, default=None):
 
 
 def _invalidate_json_cache(file_path):
-    _json_cache.pop(file_path, None)
-    _json_cache_mtime.pop(file_path, None)
+    with _json_cache_lock:
+        _json_cache.pop(file_path, None)
+        _json_cache_mtime.pop(file_path, None)
 
 
 def save_sessions():
@@ -138,7 +136,16 @@ def save_sessions():
         max_sessions = 500
         if len(keep) > max_sessions:
             logger.warning(f"save_sessions: truncating {len(keep)} sessions to {max_sessions}")
-            oldest_keys = sorted(keep.keys(), key=lambda x: keep[x].get("created_at", ""))[:-max_sessions]
+            def _session_timestamp(s):
+                for field in ("last_active", "created_at"):
+                    val = s.get(field, "")
+                    if val:
+                        try:
+                            return datetime.fromisoformat(val.replace('Z', '+00:00')).timestamp()
+                        except Exception:
+                            pass
+                return 0
+            oldest_keys = sorted(keep.keys(), key=lambda x: _session_timestamp(keep[x]))[:-max_sessions]
             for old_key in oldest_keys:
                 logger.warning(f"save_sessions: removing old session {old_key}")
                 keep.pop(old_key)
@@ -190,9 +197,6 @@ def load_ratings():
 def save_ratings(ratings_dict):
     with _ratings_lock:
         WorldRating.query.delete()
-        if not safe_commit():
-            logger.error("save_ratings: delete failed, abort")
-            return
         for wid, rating_list in ratings_dict.items():
             for r in rating_list:
                 wr = WorldRating(
@@ -201,14 +205,18 @@ def save_ratings(ratings_dict):
                     rating=r.get('rating', 3), review=r.get('review', '')
                 )
                 db.session.add(wr)
-        safe_commit()
+        if not safe_commit():
+            logger.error("save_ratings: commit failed, rolled back")
+
+
+_DISABLED_WORLD_NAMES = {'血门', '班主任游戏', '生物实验室', 'test world'}
 
 
 def load_worlds():
     try:
         with _worlds_lock:
             worlds = WorldBook.query.order_by(WorldBook.order).all()
-            return [w.to_dict() for w in worlds]
+            return [w.to_dict() for w in worlds if w.name not in _DISABLED_WORLD_NAMES]
     except Exception as e:
         logger.error(f"load_worlds failed: {e}")
         return []
@@ -217,9 +225,6 @@ def load_worlds():
 def save_worlds_data(worlds_list):
     with _worlds_lock:
         WorldBook.query.delete()
-        if not safe_commit():
-            logger.error("save_worlds_data: delete failed, abort")
-            return
         for w_data in worlds_list:
             wb = WorldBook(
                 id=w_data.get('id'), name=w_data.get('name', ''),
@@ -231,7 +236,8 @@ def save_worlds_data(worlds_list):
                 order=w_data.get('order', 0)
             )
             db.session.add(wb)
-        safe_commit()
+        if not safe_commit():
+            logger.error("save_worlds_data: commit failed, rolled back")
 
 
 def load_submissions():
@@ -247,9 +253,6 @@ def load_submissions():
 def save_submissions(subs_list):
     with _submissions_lock:
         WorldSubmission.query.delete()
-        if not safe_commit():
-            logger.error("save_submissions: delete failed, abort")
-            return
         for s_data in subs_list:
             ws = WorldSubmission(
                 id=s_data.get('id'), name=s_data.get('name', ''),
@@ -263,7 +266,8 @@ def save_submissions(subs_list):
                 status=s_data.get('status', 'pending')
             )
             db.session.add(ws)
-        safe_commit()
+        if not safe_commit():
+            logger.error("save_submissions: commit failed, rolled back")
 
 
 def log_usage(user_id, username, model, tokens, cost, endpoint):
@@ -277,9 +281,11 @@ def log_usage(user_id, username, model, tokens, cost, endpoint):
         db.session.commit()
         count = UsageLog.query.count()
         if count > 10000:
-            oldest = UsageLog.query.order_by(UsageLog.id).limit(count - 10000).all()
-            for o in oldest:
-                db.session.delete(o)
+            excess = count - 10000
+            db.session.execute(
+                db.text("DELETE FROM usage_log WHERE id IN (SELECT id FROM usage_log ORDER BY id ASC LIMIT :limit)"),
+                {"limit": excess}
+            )
             db.session.commit()
     except Exception as e:
         db.session.rollback()

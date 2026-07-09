@@ -1,6 +1,8 @@
 // ============================================================
 // 文件: feedback.js | 职责: 反馈页面逻辑 | 区块数: 9
 // ============================================================
+import { $, escapeHtml, formatDate, toast } from './utils.js';
+import { api, fetchCsrfToken } from './api.js';
 
 // ============================================================
 // 区块 01 · 全局状态
@@ -8,76 +10,14 @@
 let currentPage = 1;
 let currentUser = null;
 let isAdmin = false;
-let csrfToken = '';
 let currentRating = 3;
 
-const $ = id => document.getElementById(id);
-const toastContainer = $('toastContainer');
-
-const TOAST_DURATION = 3000;
-
-function escapeHtml(s) {
-    if (s == null) return '';
-    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-}
-
-function formatDate(isoString) {
-    if (!isoString) return '';
-    try {
-        const d = new Date(isoString);
-        return d.toLocaleString('zh-CN', {
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit'
-        });
-    } catch { return isoString; }
-}
-
-function toast(msg, type) {
-    if (!msg || !toastContainer) return;
-    const d = document.createElement('div');
-    d.className = 'toast ' + (type || 'info');
-    d.textContent = msg;
-    toastContainer.appendChild(d);
-    setTimeout(() => d.classList.add('show'), 10);
-    setTimeout(() => { d.classList.remove('show'); setTimeout(() => d.remove(), 300); }, TOAST_DURATION);
-}
-
-async function fetchCsrfToken() {
-    try {
-        const res = await fetch('/api/csrf-token', { credentials: 'include' });
-        const data = await res.json();
-        csrfToken = data.csrf_token || '';
-    } catch {}
-}
-
-fetchCsrfToken();
-
 // ============================================================
-// 区块 02 · API Helpers
-// ============================================================
-async function api(url, options = {}) {
-    const headers = { 'Content-Type': 'application/json' };
-    if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-    }
-    const res = await fetch(url, {
-        headers: { ...headers, ...options.headers },
-        credentials: 'include',
-        ...options
-    });
-    if (res.status === 401) { window.location.href = '/'; return { error: '未登录' }; }
-    try { return await res.json(); } catch { return { error: '服务器响应异常' }; }
-}
-
-function authApi(url, options = {}) {
-    return api(url, options);
-}
-
-// ============================================================
-// 区块 03 · 初始化
+// 区块 02 · 初始化
 // ============================================================
 async function init() {
     try {
+        await fetchCsrfToken();
         const meRes = await api('/api/auth/me');
         if (meRes.error || !meRes.username) {
             window.location.href = '/';
@@ -176,7 +116,7 @@ function setupFormSubmit() {
         btn.textContent = '提交中...';
 
         try {
-            const res = await authApi('/api/feedback', {
+            const res = await api('/api/feedback', {
                 method: 'POST',
                 body: JSON.stringify({
                     category: $('fbCategory').value,
@@ -243,7 +183,7 @@ async function loadFeedbackList() {
 
     showFeedbackSkeleton();
 
-    const data = await authApi(url);
+    const data = await api(url);
 
     if (data.error) {
         $('fbList').innerHTML = `<div class="fb-empty">加载失败: ${escapeHtml(data.error)}</div>`;
@@ -321,7 +261,7 @@ function showFeedbackSkeleton() {
 // 区块 08 · 统计（管理员）
 // ============================================================
 async function loadStats() {
-    const data = await authApi('/api/feedback/stats');
+    const data = await api('/api/feedback/stats');
     if (data.error) return;
     $('statTotal').textContent = data.total;
     $('statOpen').textContent = data.open;
@@ -334,7 +274,7 @@ async function loadStats() {
 // 区块 09 · 详情弹窗
 // ============================================================
 async function openFbDetail(id) {
-    const data = await authApi(`/api/feedback/${id}`);
+    const data = await api(`/api/feedback/${id}`);
     if (data.error) {
         toast(data.error, 'error');
         return;
@@ -393,7 +333,7 @@ function closeFbDetail() {
 async function saveFbDetail(id) {
     const status = $('adminStatus').value;
     const adminNote = $('adminNote').value.trim();
-    const res = await authApi(`/api/feedback/${id}`, {
+    const res = await api(`/api/feedback/${id}`, {
         method: 'PUT',
         body: JSON.stringify({ status, admin_note: adminNote })
     });
@@ -409,7 +349,7 @@ async function saveFbDetail(id) {
 
 async function deleteFb(id) {
     if (!await showConfirmModal('确定要删除这条反馈吗？')) return;
-    const res = await authApi(`/api/feedback/${id}`, { method: 'DELETE' });
+    const res = await api(`/api/feedback/${id}`, { method: 'DELETE' });
     if (res.error) {
         toast(res.error, 'error');
     } else {
@@ -439,7 +379,7 @@ function showConfirmModal(msg) {
     });
 }
 
-// [AUDIT-E07] init() 在 DOMContentLoaded 前执行，$('toastContainer') 为 null 时可能出错
+// ES Module defer: DOM已就绪，直接初始化
 init();
 
 // ===== END OF FILE =====

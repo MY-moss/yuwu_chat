@@ -2,6 +2,7 @@
 # 文件: models.py | 职责: SQLAlchemy 实例与 12 个数据模型
 # ============================================================
 import json
+import hashlib
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
@@ -52,9 +53,7 @@ class ModelConfig(db.Model):
     credits_per_1k = db.Column(db.Integer, default=1)
     enabled = db.Column(db.Boolean, default=True)
     api_base = db.Column(db.String(500), nullable=True)
-    # [AUDIT-N06] API密钥明文存储
-    api_key = db.Column(db.String(500), nullable=True)
-    # [AUDIT-N08] user_id 无 ForeignKey 约束和级联策略
+    api_key = db.Column(db.String(500), nullable=True)  # 加密存储（encrypt_value 写入，decrypt_value 读取）
     priority = db.Column(db.Integer, default=100)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
@@ -73,7 +72,6 @@ class ModelConfig(db.Model):
 
     def to_dict_admin(self):
         data = self.to_dict()
-        # [AUDIT-N06] to_dict_admin 返回 api_base 但 to_dict 不暴露 api_key，存在不一致
         data['api_base'] = self.api_base
         data['has_api_key'] = bool(self.api_key)
         return data
@@ -81,13 +79,12 @@ class ModelConfig(db.Model):
 
 class UserModelConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # [AUDIT-N08] 缺少级联策略
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     model_id = db.Column(db.String(100), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     label = db.Column(db.String(100), nullable=False)
     api_base = db.Column(db.String(500), nullable=True)
-    # [AUDIT-N06] API密钥明文存储
-    api_key = db.Column(db.String(500), nullable=True)
+    api_key = db.Column(db.String(500), nullable=True)  # 加密存储（encrypt_value 写入，decrypt_value 读取）
     priority = db.Column(db.Integer, default=100)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
@@ -123,17 +120,22 @@ class ApiConfig(db.Model):
 
 class CreditKey(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    # [AUDIT-S07] key 明文存储（遮蔽 built-in `key`），to_dict 暴露原始兑换码
-    key = db.Column(db.String(32), unique=True, nullable=False)
+    key = db.Column(db.String(64), unique=True, nullable=False)  # sha256 哈希存储
+    key_preview = db.Column(db.String(12), nullable=False, default='')  # 末4位用于显示
     credits = db.Column(db.Integer, nullable=False)
     used = db.Column(db.Boolean, default=False)
-    used_by = db.Column(db.Integer, nullable=True)
+    used_by = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
+
+    @staticmethod
+    def hash_key(plaintext):
+        """返回 (sha256_hexdigest, preview)"""
+        return hashlib.sha256(plaintext.encode()).hexdigest(), plaintext[:12]
 
     def to_dict(self):
         return {
             'id': self.id,
-            'key': self.key,
+            'key_preview': self.key_preview,
             'credits': self.credits,
             'used': self.used,
             'used_by': self.used_by,
@@ -237,13 +239,13 @@ class WorldBook(db.Model):
 class WorldRating(db.Model):
     __tablename__ = 'world_rating'
     id = db.Column(db.Integer, primary_key=True)
-    world_id = db.Column(db.String(100), db.ForeignKey('world_book.id'), nullable=False)
-    user_id = db.Column(db.Integer, nullable=False)
+    world_id = db.Column(db.String(100), db.ForeignKey('world_book.id', ondelete='CASCADE'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False)
     username = db.Column(db.String(80), nullable=False)
     rating = db.Column(db.Integer, nullable=False)
     review = db.Column(db.Text, default='')
     created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, onupdate=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
 
     __table_args__ = (
         db.UniqueConstraint('world_id', 'user_id', name='uq_world_user_rating'),
@@ -267,10 +269,9 @@ class WorldSubmission(db.Model):
     system_prompt = db.Column(db.Text, default='')
     temperature = db.Column(db.Float, default=0.85)
     max_tokens = db.Column(db.Integer, default=700)
-    # [AUDIT-N08] submitted_by 缺少 ForeignKey('user.id') 约束和级联策略
-    submitted_by = db.Column(db.Integer, nullable=False)
-    submitter = db.Column(db.String(80), default='')  # [AUDIT-Q08] 非规范化存储
-    status = db.Column(db.String(20), default='pending')  # [AUDIT-P03] 无索引（频繁 WHERE status='pending'）
+    submitted_by = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'), nullable=True)
+    submitter = db.Column(db.String(80), default='')
+    status = db.Column(db.String(20), default='pending', index=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
     def to_dict(self):
@@ -286,10 +287,12 @@ class WorldSubmission(db.Model):
 
 class UsageLog(db.Model):
     __tablename__ = 'usage_log'
+    __table_args__ = (
+        db.Index('idx_usage_user_created', 'user_id', 'created_at'),
+    )
     id = db.Column(db.Integer, primary_key=True)
-    # [AUDIT-P02] 缺少复合索引 (user_id, created_at) 用于管理员统计查询
-    user_id = db.Column(db.Integer, nullable=False, index=True)
-    username = db.Column(db.String(80), nullable=False)  # [AUDIT-Q08] 非规范化存储
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'), nullable=False, index=True)
+    username = db.Column(db.String(80), nullable=False)
     model = db.Column(db.String(100), nullable=False)
     tokens = db.Column(db.Integer, default=0)
     cost = db.Column(db.Float, default=0.0)

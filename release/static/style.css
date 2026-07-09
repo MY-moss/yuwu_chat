@@ -3321,7 +3321,24 @@ body {
     51%, 100% { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
     .tw-cursor::after { animation: none; opacity: 0.5; }
+}
+
+@media (forced-colors: active) {
+    button, a, input, textarea, select {
+        border: 1px solid ButtonText;
+    }
+    .modal-overlay { background: Canvas; }
+    .world-card, .session-card, .agent-card, .feedback-item,
+    .chat-msg, .message-bubble, .sc-card {
+        border: 1px solid ButtonText;
+    }
 }
 
 /* ===== END OF FILE ===== */

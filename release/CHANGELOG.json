@@ -1,6 +1,14 @@
 {
     "history": [
         {
+            "version": "v2.2.1.0",
+            "old_version": "v2.2.0.8",
+            "type": "patch",
+            "type_desc": "全面代码审计修复",
+            "description": "2026-07-09 全面系统代码审计（4并行Agent+后端核心模块深度审计），本轮立即修复30项（15高危+10中危+5低危）。高危修复：①chat.py/rpg.py actual_cost未定义NameError致聊天/跑团不可用；②auth.py注册限流违反约束(5次/60s→3次/3600s)；③ai_service.call_ai timeout=120无分离超时+允许重定向→timeout=(10,120),allow_redirects=False；④admin.py兑换积分TOCTOU非原子→原子SQL UPDATE；⑤⑥⑦json_io save_ratings/save_worlds_data/save_submissions分次提交数据丢失→单事务；⑧ai_service.save_agents无异常处理→添加try/except+rollback；⑨state.py Lock()不可重入死锁→全部RLock()；⑩rpg.py 11路由rpg_sessions无锁→全部加_sessions_lock保护；⑪rpg_act_stream 5错误路径积分不退还→refund_full()；⑫app.py key_preview泄露37.5%密钥→末4位；⑬start_rpg并发数据覆盖→加锁。中危修复：_json_cache无锁→新增_json_cache_lock；_cached_json_load/_invalidate_json_cache加锁；clear_history加_histories_lock；X-Forwarded-For可伪造→request.remote_addr；is_safe_url无DNS解析→socket.getaddrinfo检查；load_worlds未过滤禁用世界书→添加_DISABLED_WORLD_NAMES过滤；admin_all_sessions加锁；models.py注释不一致；rpg_act初始/最终无锁。低危修复：list_sessions/update_session/get_session/branch_session/delete_session/roll_dice/admin_spectate/stream 各端点锁保护补全。现存~30项已写入优化建议.md第十节（P1本周4项+P2本月8项+P3可延期16项+其他2项）",
+            "timestamp": "2026-07-10 00:00:00"
+        },
+        {
             "version": "v2.2.0.8",
             "old_version": "v2.2.0.7",
             "type": "patch",

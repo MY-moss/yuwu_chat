@@ -3,6 +3,7 @@
 # ============================================================
 import re
 import os
+import socket
 import logging
 import base64
 import ipaddress
@@ -67,9 +68,20 @@ def is_safe_url(url):
             if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast:
                 return False, '不允许访问私有或本地地址'
         except ValueError:
-            pass
+            try:
+                resolved = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                for _, _, _, _, sockaddr in resolved:
+                    ip_str = sockaddr[0]
+                    try:
+                        addr = ipaddress.ip_address(ip_str)
+                        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast:
+                            return False, '域名解析到私有或本地地址'
+                    except ValueError:
+                        pass
+            except socket.gaierror:
+                pass
         return True, ''
-    except Exception as e:
+    except Exception:
         return False, 'URL 解析失败'
 
 

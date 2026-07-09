@@ -37,11 +37,8 @@ async function switchMode(newMode) {
 
         state.currentMode = newMode;
 
-        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));  // [AUDIT-Q31] querySelectorAll('.mode-tab') 多次重复查询
-        document.querySelector(`.mode-tab[data-mode="${newMode}"]`)?.classList.add('active');
-
-        document.querySelectorAll('.mobile-tab-item[data-mode]').forEach(t => t.classList.remove('active'));
-        document.querySelector(`.mobile-tab-item[data-mode="${newMode}"]`)?.classList.add('active');
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === newMode));
+        document.querySelectorAll('.mobile-tab-item[data-mode]').forEach(t => t.classList.toggle('active', t.dataset.mode === newMode));
 
         const worldSelectScreen = $('worldSelectScreen');
         const gameScreen = $('gameScreen');

@@ -163,9 +163,148 @@ def migrate_json_to_sqlite():
                 logger.warning(f"UsageLog migration skipped: {e}")
 
 
+def _migrate_foreign_keys():
+    """N09+N08: 重建表以添加外键约束，同时将CreditKey.key转为sha256哈希"""
+    import hashlib as _hl
+    try:
+        cols = [col[1] for col in db.session.execute(db.text("PRAGMA table_info(credit_key)")).fetchall()]
+        if 'key_preview' in cols:
+            try:
+                row = db.session.execute(db.text("SELECT value FROM api_config WHERE key_name = 'schema_version'")).scalar()
+                if not row:
+                    db.session.execute(db.text("INSERT OR IGNORE INTO api_config (key_name, value, priority) VALUES ('schema_version', '2', 0)"))
+                elif int(row) < 2:
+                    db.session.execute(db.text("UPDATE api_config SET value = '2' WHERE key_name = 'schema_version'"))
+                db.session.commit()
+            except Exception:
+                pass
+            return
+    except Exception:
+        return
+
+    try:
+        db.session.execute(db.text("PRAGMA foreign_keys=OFF"))
+
+        db.session.execute(db.text("""
+            CREATE TABLE _umc_new (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+                model_id VARCHAR(100) NOT NULL,
+                name VARCHAR(100) NOT NULL,
+                label VARCHAR(100) NOT NULL,
+                api_base VARCHAR(500),
+                api_key VARCHAR(500),
+                priority INTEGER DEFAULT 100,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, model_id)
+            )
+        """))
+        db.session.execute(db.text("INSERT INTO _umc_new (id, user_id, model_id, name, label, api_base, api_key, priority, created_at) SELECT id, user_id, model_id, name, label, api_base, api_key, priority, created_at FROM user_model_config"))
+        db.session.execute(db.text("DROP TABLE user_model_config"))
+        db.session.execute(db.text("ALTER TABLE _umc_new RENAME TO user_model_config"))
+
+        db.session.execute(db.text("""
+            CREATE TABLE _ck_new (
+                id INTEGER PRIMARY KEY,
+                key VARCHAR(64) NOT NULL UNIQUE,
+                key_preview VARCHAR(12) NOT NULL DEFAULT '',
+                credits INTEGER NOT NULL,
+                used BOOLEAN DEFAULT 0,
+                used_by INTEGER REFERENCES user(id) ON DELETE SET NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        rows = db.session.execute(db.text("SELECT id, key, credits, used, used_by, created_at FROM credit_key")).fetchall()
+        for row in rows:
+            key_plain = row[1] or ""
+            key_hash = _hl.sha256(key_plain.encode()).hexdigest()
+            key_preview = key_plain[-4:]
+            db.session.execute(db.text(
+                "INSERT INTO _ck_new (id, key, key_preview, credits, used, used_by, created_at) "
+                "VALUES (:id, :kh, :kp, :c, :u, :ub, :ca)"
+            ), {"id": row[0], "kh": key_hash, "kp": key_preview, "c": row[2], "u": row[3], "ub": row[4], "ca": row[5]})
+        db.session.execute(db.text("DROP TABLE credit_key"))
+        db.session.execute(db.text("ALTER TABLE _ck_new RENAME TO credit_key"))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_credit_key_key ON credit_key(key)"))
+
+        db.session.execute(db.text("""
+            CREATE TABLE _wr_new (
+                id INTEGER PRIMARY KEY,
+                world_id VARCHAR(100) NOT NULL REFERENCES world_book(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+                username VARCHAR(80) NOT NULL,
+                rating INTEGER NOT NULL,
+                review TEXT DEFAULT '',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (world_id, user_id)
+            )
+        """))
+        db.session.execute(db.text("INSERT INTO _wr_new (id, world_id, user_id, username, rating, review, created_at, updated_at) SELECT id, world_id, user_id, username, rating, review, created_at, updated_at FROM world_rating"))
+        db.session.execute(db.text("DROP TABLE world_rating"))
+        db.session.execute(db.text("ALTER TABLE _wr_new RENAME TO world_rating"))
+
+        db.session.execute(db.text("""
+            CREATE TABLE _ws_new (
+                id VARCHAR(100) PRIMARY KEY,
+                name VARCHAR(200) NOT NULL,
+                emoji VARCHAR(20) DEFAULT '📖',
+                genre VARCHAR(100) DEFAULT '',
+                desc TEXT DEFAULT '',
+                system_prompt TEXT DEFAULT '',
+                temperature FLOAT DEFAULT 0.85,
+                max_tokens INTEGER DEFAULT 700,
+                submitted_by INTEGER REFERENCES user(id) ON DELETE SET NULL,
+                submitter VARCHAR(80) DEFAULT '',
+                status VARCHAR(20) DEFAULT 'pending',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(db.text("INSERT INTO _ws_new (id, name, emoji, genre, desc, system_prompt, temperature, max_tokens, submitted_by, submitter, status, created_at) SELECT id, name, emoji, genre, desc, system_prompt, temperature, max_tokens, submitted_by, submitter, status, created_at FROM world_submission"))
+        db.session.execute(db.text("DROP TABLE world_submission"))
+        db.session.execute(db.text("ALTER TABLE _ws_new RENAME TO world_submission"))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_world_submission_status ON world_submission(status)"))
+
+        db.session.execute(db.text("""
+            CREATE TABLE _ul_new (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+                username VARCHAR(80) NOT NULL,
+                model VARCHAR(100) NOT NULL,
+                tokens INTEGER DEFAULT 0,
+                cost FLOAT DEFAULT 0.0,
+                endpoint VARCHAR(50) DEFAULT 'chat',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.session.execute(db.text("INSERT INTO _ul_new (id, user_id, username, model, tokens, cost, endpoint, created_at) SELECT id, user_id, username, model, tokens, cost, endpoint, created_at FROM usage_log"))
+        db.session.execute(db.text("DROP TABLE usage_log"))
+        db.session.execute(db.text("ALTER TABLE _ul_new RENAME TO usage_log"))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_usage_log_user_id ON usage_log(user_id)"))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_usage_log_created_at ON usage_log(created_at)"))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_usage_user_created ON usage_log(user_id, created_at)"))
+
+        db.session.execute(db.text("PRAGMA foreign_keys=ON"))
+
+        try:
+            row = db.session.execute(db.text("SELECT value FROM api_config WHERE key_name = 'schema_version'")).scalar()
+            if not row:
+                db.session.execute(db.text("INSERT OR IGNORE INTO api_config (key_name, value, priority) VALUES ('schema_version', '2', 0)"))
+            else:
+                db.session.execute(db.text("UPDATE api_config SET value = '2' WHERE key_name = 'schema_version'"))
+        except Exception:
+            pass
+        db.session.commit()
+        logger.info("N09+N08: 外键约束和卡密哈希迁移完成")
+    except Exception as e:
+        db.session.rollback()
+        logger.warning(f"N09+N08迁移失败（可能已迁移）: {e}")
+
+
 def init_db():
     db.create_all()
     migrate_json_to_sqlite()
+    _migrate_foreign_keys()
     try:
         cols = [col[1] for col in db.session.execute(db.text("PRAGMA table_info(user_model_config)")).fetchall()]
         if 'api_base' not in cols:
@@ -191,6 +330,8 @@ def init_db():
         db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_credit_key_key ON credit_key(key)"))
         db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_model_config_model_id ON model_config(model_id)"))
         db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_usage_log_created_at ON usage_log(created_at)"))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_usage_user_created ON usage_log(user_id, created_at)"))
+        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_world_submission_status ON world_submission(status)"))
         db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_rate_limit_entry_action ON rate_limit_entry(action, key)"))
         try:
             db.session.execute(db.text("ALTER TABLE user ADD COLUMN password_reset_required BOOLEAN DEFAULT 0"))
@@ -247,6 +388,10 @@ def create_app():
             app.secret_key = secrets.token_hex(32)
             with open(_key_file, 'w') as f:
                 f.write(app.secret_key)
+            try:
+                os.chmod(_key_file, 0o600)
+            except OSError:
+                pass
     else:
         app.secret_key = _secret_key
 
@@ -264,6 +409,15 @@ def create_app():
     # ===== 初始化扩展 =====
     db.init_app(app)
     login_manager.init_app(app)
+
+    # N09: 启用SQLite外键约束
+    from sqlalchemy import event
+    with app.app_context():
+        @event.listens_for(db.engine, "connect")
+        def _set_sqlite_pragma(dbapi_conn, connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
 
     if not HAS_CRYPTO:
         logger.critical("CRITICAL: cryptography library not installed! API key encryption will fail.")
@@ -312,17 +466,17 @@ def create_app():
             response.headers.pop('Expires', None)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        # response.headers['Content-Security-Policy'] = (
-        #     "default-src 'self'; "
-        #     "script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
-        #     "style-src 'self' 'unsafe-inline' cdnjs.cloudflare.com; "
-        #     "img-src 'self' data:; "
-        #     "connect-src 'self'; "
-        #     "font-src 'self'; "
-        #     "frame-ancestors 'none'; "
-        #     "base-uri 'self'; "
-        #     "form-action 'self'"
-        # )
+        response.headers['Content-Security-Policy'] = (
+            "default-src 'self'; "
+            "script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline' cdnjs.cloudflare.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        )
         return response
 
     # ===== 应用级路由 =====
@@ -370,7 +524,7 @@ def main():
     with app.app_context():
         init_db()
         # Schema version check — bump SCHEMA_VERSION when making backwards-incompatible DB changes
-        SCHEMA_VERSION = 1
+        SCHEMA_VERSION = 2
         try:
             row = db.session.execute(db.text("SELECT value FROM api_config WHERE key_name = 'schema_version'")).scalar()
             if not row:

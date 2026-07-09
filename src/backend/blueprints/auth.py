@@ -37,7 +37,7 @@ def register():
         return jsonify({"error": pwd_msg}), 400
 
     client_ip = request.remote_addr
-    if not check_rate_limit('register', client_ip, max_attempts=5, window=60):
+    if not check_rate_limit('register', client_ip, max_attempts=3, window=3600):
         return jsonify({"error": "注册过于频繁，请稍后再试"}), 429
 
     user = User(username=username, credits=_INITIAL_CREDITS)
@@ -66,7 +66,7 @@ def login():
     username = sanitize_input(data.get("username", ""))
     password = data.get("password", "").strip()
 
-    client_ip = request.headers.get('X-Forwarded-For', '').split(',')[0].strip() or request.remote_addr
+    client_ip = request.remote_addr
 
     if not check_rate_limit('login', client_ip, max_attempts=5, window=60):
         return jsonify({"error": "登录尝试过于频繁，请稍后再试"}), 429

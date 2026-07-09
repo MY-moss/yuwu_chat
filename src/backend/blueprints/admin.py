@@ -2,6 +2,7 @@
 # 文件: blueprints/admin.py | 职责: 管理员后台（模型/用户/统计/API配置/卡密/兑换）
 # ============================================================
 import uuid
+import hashlib
 import logging
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
@@ -274,23 +275,24 @@ def admin_all_sessions():
     worlds = load_worlds()
     wmap = {w["id"]: w for w in worlds}
     items = []
-    for sid, s in rpg_sessions.items():
-        w = wmap.get(s.get("world_id", ""), {})
-        sections = s.get("sections", {})
-        items.append({
-            "session_id": sid,
-            "user_id": s.get("user_id"),
-            "player_name": s.get("player_name", "?"),
-            "world_name": w.get("name", "?"),
-            "world_emoji": w.get("emoji", "📖"),
-            "rounds": len(s.get("storyline", [])),
-            "last_story": (s.get("last_story", "") or "")[:100],
-            "state_preview": sections.get("状态", "")[:80],
-            "shared": bool(s.get("share_token")),
-            "share_token": s.get("share_token"),
-            "last_active": s.get("last_active", ""),
-            "created_at": s.get("created_at", "")
-        })
+    with _sessions_lock:
+        for sid, s in rpg_sessions.items():
+            w = wmap.get(s.get("world_id", ""), {})
+            sections = s.get("sections", {})
+            items.append({
+                "session_id": sid,
+                "user_id": s.get("user_id"),
+                "player_name": s.get("player_name", "?"),
+                "world_name": w.get("name", "?"),
+                "world_emoji": w.get("emoji", "📖"),
+                "rounds": len(s.get("storyline", [])),
+                "last_story": (s.get("last_story", "") or "")[:100],
+                "state_preview": sections.get("状态", "")[:80],
+                "shared": bool(s.get("share_token")),
+                "share_token": s.get("share_token"),
+                "last_active": s.get("last_active", ""),
+                "created_at": s.get("created_at", "")
+            })
     items.sort(key=lambda x: x.get("last_active", "") or "", reverse=True)
     return jsonify(items)
 
@@ -331,7 +333,6 @@ def update_api_config_route():
             cfg.value = encrypt_value(data["api_key"].strip())
         else:
             db.session.add(ApiConfig(key_name="API_KEY", value=encrypt_value(data["api_key"].strip())))
-    # [AUDIT-S20] API URL 直接存储，缺少 is_safe_url 验证
     if "api_url" in data and data["api_url"].strip():
         api_url = data["api_url"].strip()
         safe, msg = is_safe_url(api_url)
@@ -386,9 +387,12 @@ def generate_credit_key():
     if credits < 1 or credits > 999999 or count < 1 or count > 100:
         return jsonify({"error": "参数无效（credits: 1-999999, count: 1-100）"}), 400
 
-    keys = [CreditKey(key="TAVERN-" + uuid.uuid4().hex[:12].upper(), credits=credits) for _ in range(count)]
-    db.session.add_all(keys)
-    generated = [k.key for k in keys]
+    generated = []
+    for _ in range(count):
+        plaintext = "TAVERN-" + uuid.uuid4().hex[:12].upper()
+        key_hash, key_preview = CreditKey.hash_key(plaintext)
+        db.session.add(CreditKey(key=key_hash, key_preview=key_preview, credits=credits))
+        generated.append(plaintext)
 
     db.session.commit()
     return jsonify({
@@ -426,7 +430,8 @@ def redeem_key():
     if not code:
         return jsonify({"error": "请输入充值密钥"}), 400
 
-    key = CreditKey.query.filter_by(key=code, used=False).first()
+    code_hash = hashlib.sha256(code.encode()).hexdigest()
+    key = CreditKey.query.filter_by(key=code_hash, used=False).first()
     if not key:
         return jsonify({"error": "无效的充值密钥或已被使用"}), 404
 
@@ -437,8 +442,10 @@ def redeem_key():
     if updated == 0:
         return jsonify({"error": "该密钥已被使用"}), 400
 
-    current_user.credits += key.credits
-    current_user.token_version = (current_user.token_version or 1) + 1
+    db.session.execute(
+        db.text("UPDATE user SET credits = credits + :amt, token_version = token_version + 1 WHERE id = :uid"),
+        {"amt": key.credits, "uid": current_user.id}
+    )
     db.session.commit()
 
     return jsonify({

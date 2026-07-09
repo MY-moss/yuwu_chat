@@ -11,12 +11,13 @@ rpg_sessions = {}
 _json_cache = {}
 _json_cache_mtime = {}
 
-# ===== 并发锁 =====
-_histories_lock = threading.Lock()
-_sessions_lock = threading.Lock()
-_agents_lock = threading.Lock()
-_worlds_lock = threading.Lock()
-_ratings_lock = threading.Lock()
-_submissions_lock = threading.Lock()
-_usage_log_lock = threading.Lock()
+# ===== 并发锁（使用 RLock 支持嵌套获取，避免 save_* 调用时死锁）=====
+_histories_lock = threading.RLock()
+_sessions_lock = threading.RLock()
+_agents_lock = threading.RLock()
+_worlds_lock = threading.RLock()
+_ratings_lock = threading.RLock()
+_submissions_lock = threading.RLock()
+_usage_log_lock = threading.RLock()
+_json_cache_lock = threading.Lock()
 

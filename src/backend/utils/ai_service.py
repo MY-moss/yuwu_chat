@@ -16,9 +16,8 @@ logger = logging.getLogger(__name__)
 
 def load_agents():
     try:
-        with _agents_lock:
-            agents = Agent.query.all()
-            return [a.to_dict() for a in agents]
+        agents = Agent.query.all()
+        return [a.to_dict() for a in agents]
     except Exception as e:
         logger.error(f"load_agents failed: {e}")
         return []
@@ -26,10 +25,14 @@ def load_agents():
 
 def save_agents(agents_list):
     with _agents_lock:
-        Agent.query.delete()
-        for a_data in agents_list:
-            db.session.add(Agent.from_dict(a_data))
-        db.session.commit()
+        try:
+            Agent.query.delete()
+            for a_data in agents_list:
+                db.session.add(Agent.from_dict(a_data))
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"save_agents failed: {e}")
 
 
 def get_agent(agent_id):
@@ -119,7 +122,6 @@ def get_effective_api(model_id=None, user=None):
                 user = current_user
         except Exception:
             pass
-    # [AUDIT-N04] 用户配置任意 api_base URL → 系统 API Key 作为 Bearer Token 发送至任意服务器
     if model_id and user:
         user_model = UserModelConfig.query.filter_by(user_id=user.id, model_id=model_id).first()
         if user_model and user_model.api_base and user_model.api_key:
@@ -157,10 +159,10 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=1200)
             "temperature": temperature,
             "max_tokens": max_tokens
         }
-        with requests.post(api_url, headers=headers, json=body, timeout=120) as resp:
+        with requests.post(api_url, headers=headers, json=body, timeout=(10, 120), allow_redirects=False) as resp:
             if resp.status_code != 200:
                 logger.error(sanitize_log(f"call_ai API failed: {resp.status_code}"))
-                raise Exception(f"API调用失败")
+                raise Exception(f"API调用失败: HTTP {resp.status_code}")
             data = resp.json()
             full = data["choices"][0]["message"]["content"]
             total_tokens, _, _ = parse_usage(data)
@@ -172,9 +174,9 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=1200)
                     story = (story + "\n" + judge_result) if story else judge_result
                     sections.pop("判定", None)
             return story, sections, total_tokens
-    # [AUDIT-E03] 所有异常统一返回 None,{},0 — 调用方无法区分"AI无回复"vs"网络错误"vs"API密钥无效"
+    # [AUDIT-N46] 所有异常统一返回 None,{},0 — 改进日志记录以区分错误类型
     except Exception as e:
-        logger.error(f"call_ai failed: {e}")
+        logger.error(f"call_ai failed: {type(e).__name__}: {e}")
         return None, {}, 0
 
 

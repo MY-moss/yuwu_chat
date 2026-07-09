@@ -16,7 +16,10 @@ export function renderMarkdown(text) {
              .replace(/\\'/g, "'")
              .replace(/\\\\/g, '\\');
 
-    if (mdCache.size > 100) mdCache.clear();
+    if (mdCache.size >= 100) {
+        const firstKey = mdCache.keys().next().value;
+        mdCache.delete(firstKey);
+    }
 
     let result;
     try {

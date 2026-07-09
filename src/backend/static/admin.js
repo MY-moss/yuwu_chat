@@ -117,7 +117,7 @@ export async function loadAdminKeys() {
     const keys = await api('/api/admin/credit-keys');
     $('adminKeysList').innerHTML = keys.map(k => `
         <div class="key-list-item">
-            <span class="key-code">${escapeHtml(k.key)}</span>
+            <span class="key-code">${escapeHtml(k.key_preview)}…</span>
             <span class="key-info">
                 <div>💰 ${k.credits} 积分</div>
                 <div class="key-meta">
@@ -340,18 +340,59 @@ export function initAdmin() {
         try {
             const credits = parseInt($('keyCredits').value) || 100;
             const count = parseInt($('keyCount').value) || 1;
+            if (!Number.isInteger(credits) || credits <= 0) { toast('积分数量必须为正整数'); return; }
+            if (!Number.isInteger(count) || count <= 0 || count > 100) { toast('生成数量必须为1-100'); return; }
             const data = await api('/api/admin/credit-keys', {
                 method: 'POST',
                 body: JSON.stringify({ credits, count })
             });
             if (data.error) { toast(data.error); return; }
             const keysText = data.keys.join('\n');
-            // [AUDIT-X05] 卡密以 Toast 直接展现，可被页面上其他脚本读取
-            toast(`已生成 ${data.count} 个 ${data.credits} 积分密钥：\n\n${keysText}\n\n请复制并分发给用户`);
+            showKeyResultModal(data.count, data.credits, keysText);
             loadAdminKeys();
         } catch (e) {
             console.error('[ERROR] genKeyBtn:', e);
             toast('生成密钥失败：' + e.message);
+        }
+    });
+}
+
+function showKeyResultModal(count, credits, keysText) {
+    const existing = $('keyResultModal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay show';
+    modal.id = 'keyResultModal';
+    modal.innerHTML = `
+        <div class="modal">
+            <div class="modal-header">
+                <span>🎫 生成成功</span>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p>已生成 ${count} 个 ${credits} 积分密钥：</p>
+                <textarea id="keyResultText" rows="${Math.min(count + 2, 15)}" readonly style="width:100%;font-family:monospace;resize:vertical;">${escapeHtml(keysText)}</textarea>
+                <div style="text-align:center;margin-top:12px;">
+                    <button class="btn-add" id="copyKeysBtn">📋 复制全部</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector('.modal-close').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    modal.querySelector('#copyKeysBtn').addEventListener('click', () => {
+        const textarea = modal.querySelector('#keyResultText');
+        textarea.select();
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(textarea.value);
+            } else {
+                document.execCommand('copy');
+            }
+            toast('已复制到剪贴板');
+        } catch (err) {
+            toast('复制失败，请手动选择复制');
         }
     });
 }

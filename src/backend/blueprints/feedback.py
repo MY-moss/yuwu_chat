@@ -1,9 +1,9 @@
 # ============================================================
 # 文件: blueprints/feedback.py | 职责: 用户反馈系统（提交/列表/统计/管理）
 # ============================================================
-import collections
 from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
+from sqlalchemy import func
 from models import db, Feedback
 from utils.json_io import check_rate_limit
 
@@ -101,18 +101,33 @@ def feedback_stats():
     if current_user.role != "admin":
         return jsonify({"error": "无权限"}), 403
 
-    all_fb = Feedback.query.all()
-    stats = {"total": len(all_fb), "open": 0, "in_progress": 0, "resolved": 0, "closed": 0,
-             "bug": 0, "feature": 0, "suggestion": 0, "praise": 0, "other": 0}
-    ratings = []
-    for fb in all_fb:
-        stats[fb.status] = stats.get(fb.status, 0) + 1
-        stats[fb.category] = stats.get(fb.category, 0) + 1
-        ratings.append(fb.rating)
-    avg_rating = round(sum(ratings) / len(ratings), 1) if ratings else 0
-    stats["avg_rating"] = avg_rating
-    counter = collections.Counter(ratings)
-    stats["rating_dist"] = {str(i): counter.get(i, 0) for i in range(1, 6)}
+    total = db.session.query(func.count(Feedback.id)).scalar() or 0
+    status_counts = dict(db.session.query(Feedback.status, func.count(Feedback.id))
+                         .group_by(Feedback.status).all())
+    category_counts = dict(db.session.query(Feedback.category, func.count(Feedback.id))
+                           .group_by(Feedback.category).all())
+    avg_rating = db.session.query(func.avg(Feedback.rating)).scalar()
+    avg_rating = round(float(avg_rating), 1) if avg_rating else 0
+    rating_dist_raw = (db.session.query(Feedback.rating, func.count(Feedback.id))
+                        .group_by(Feedback.rating).all())
+    rating_dist = {str(i): 0 for i in range(1, 6)}
+    for r, c in rating_dist_raw:
+        rating_dist[str(r)] = c
+
+    stats = {
+        "total": total,
+        "open": status_counts.get("open", 0),
+        "in_progress": status_counts.get("in_progress", 0),
+        "resolved": status_counts.get("resolved", 0),
+        "closed": status_counts.get("closed", 0),
+        "bug": category_counts.get("bug", 0),
+        "feature": category_counts.get("feature", 0),
+        "suggestion": category_counts.get("suggestion", 0),
+        "praise": category_counts.get("praise", 0),
+        "other": category_counts.get("other", 0),
+        "avg_rating": avg_rating,
+        "rating_dist": rating_dist
+    }
     return jsonify(stats)
 
 
