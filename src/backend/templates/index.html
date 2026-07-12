@@ -12,9 +12,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="云雾酒馆">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-    <!-- [AUDIT-X08] 无 Content-Security-Policy meta 标签，XSS 缺少二次防御层 -->
 </head>
 <body>
+    <canvas id="threeCanvas" style="position:fixed;inset:0;z-index:-3;pointer-events:none;"></canvas>
     <div class="tavern-bg"></div>
     <div class="particles"></div>
 
@@ -267,7 +267,7 @@
         <div class="modal modal-wide">
             <div class="modal-header">
                 <span>⚙️ 管理员面板</span>
-                <button class="modal-close" id="adminClose">&times;</button>
+                <button class="modal-close" id="adminClose" aria-label="关闭">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="admin-tabs">
@@ -359,7 +359,7 @@
     <!-- 模型编辑器 -->
     <div class="modal-overlay" id="modelEditorModal">
         <div class="modal">
-            <div class="modal-header"><span id="modelEditorTitle">✏️ 编辑模型</span><button class="modal-close" id="modelEditorClose">&times;</button></div>
+            <div class="modal-header"><span id="modelEditorTitle">✏️ 编辑模型</span><button class="modal-close" id="modelEditorClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="form-group"><label>模型ID</label><input type="text" id="mEditModelId" placeholder="如 mimo-v2.5-free" maxlength="100"></div>
                 <div class="form-group"><label>模型名称</label><input type="text" id="mEditName" placeholder="如 Mimo V2.5" maxlength="100"></div>
@@ -384,7 +384,7 @@
     <!-- 智能体管理弹窗 -->
     <div class="modal-overlay" id="manageModal">
         <div class="modal">
-            <div class="modal-header"><span>⚙️ 智能体管理</span><button class="modal-close" id="modalClose">&times;</button></div>
+            <div class="modal-header"><span>⚙️ 智能体管理</span><button class="modal-close" id="modalClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body" id="agentList"></div>
             <div class="modal-footer"><button class="btn-add" id="addAgentBtn">+ 新建智能体</button></div>
         </div>
@@ -393,7 +393,7 @@
     <!-- 智能体编辑器 -->
     <div class="modal-overlay" id="editorModal">
         <div class="modal modal-wide">
-            <div class="modal-header"><span id="editorTitle">✏️ 编辑智能体</span><button class="modal-close" id="editorClose">&times;</button></div>
+            <div class="modal-header"><span id="editorTitle">✏️ 编辑智能体</span><button class="modal-close" id="editorClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="form-grid">
                     <div class="form-group"><label>ID</label><input type="text" id="editId" maxlength="100"></div>
@@ -413,7 +413,7 @@
     <!-- 世界书管理弹窗 -->
     <div class="modal-overlay" id="worldManageModal">
         <div class="modal">
-            <div class="modal-header"><span>📖 世界书管理</span><button class="modal-close" id="worldManageClose">&times;</button></div>
+            <div class="modal-header"><span>📖 世界书管理</span><button class="modal-close" id="worldManageClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div id="worldManageGrid"></div>
                 <div class="mysub-section" id="mySubmissionsSection" style="margin-top:16px;">
@@ -431,7 +431,7 @@
     <!-- 世界书编辑器 -->
     <div class="modal-overlay" id="worldEditorModal">
         <div class="modal modal-wide">
-            <div class="modal-header"><span id="worldEditorTitle">✏️ 编辑世界书</span><button class="modal-close" id="worldEditorClose">&times;</button></div>
+            <div class="modal-header"><span id="worldEditorTitle">✏️ 编辑世界书</span><button class="modal-close" id="worldEditorClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="form-group"><label>世界名称</label><input type="text" id="wEditName" placeholder="如 迷雾酒馆" maxlength="100"></div>
                 <div class="form-grid">
@@ -461,7 +461,7 @@
     <!-- 投稿世界书 -->
     <div class="modal-overlay" id="submitWorldModal">
         <div class="modal modal-wide">
-            <div class="modal-header"><span>📝 投稿世界书</span><button class="modal-close" id="submitWorldClose">&times;</button></div>
+            <div class="modal-header"><span>📝 投稿世界书</span><button class="modal-close" id="submitWorldClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="form-group"><label>世界名称</label><input type="text" id="sEditName" placeholder="如 暗影迷宫" maxlength="100"></div>
                 <div class="form-grid">
@@ -487,7 +487,7 @@
     <!-- 个人API设置 -->
     <div class="modal-overlay" id="apiSettingsModal">
         <div class="modal" style="max-width:700px;">
-            <div class="modal-header"><span>🔌 自有 API 配置</span><button class="modal-close" id="apiSettingsClose">&times;</button></div>
+            <div class="modal-header"><span>🔌 自有 API 配置</span><button class="modal-close" id="apiSettingsClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="admin-panel-header" style="margin-bottom:12px;">
                     <span>🤖 我的模型列表</span>
@@ -535,7 +535,7 @@
     <!-- 用户模型编辑弹窗 -->
     <div class="modal-overlay" id="userModelEditorModal">
         <div class="modal">
-            <div class="modal-header"><span>✏️ 编辑我的模型</span><button class="modal-close" id="userModelEditorClose">&times;</button></div>
+            <div class="modal-header"><span>✏️ 编辑我的模型</span><button class="modal-close" id="userModelEditorClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="form-group"><label>模型 ID</label><input type="text" id="umEditId" disabled></div>
                 <div class="form-group"><label>模型名称</label><input type="text" id="umEditName" maxlength="100"></div>
@@ -551,7 +551,7 @@
     <!-- 修改密码弹窗 -->
     <div class="modal-overlay" id="changePwdModal">
         <div class="modal">
-            <div class="modal-header"><span>🔑 修改密码</span><button class="modal-close" id="changePwdClose">&times;</button></div>
+            <div class="modal-header"><span>🔑 修改密码</span><button class="modal-close" id="changePwdClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="form-group"><label for="oldPassword">原密码</label><input type="password" id="oldPassword" placeholder="请输入原密码" autocomplete="current-password" maxlength="128"></div>
                 <div class="form-group"><label for="newPassword">新密码</label>                        <input type="password" id="newPassword" placeholder="至少8位" autocomplete="new-password" maxlength="128"></div>
@@ -565,7 +565,7 @@
     <!-- 消耗记录弹窗 -->
     <div class="modal-overlay" id="usageModal">
         <div class="modal modal-wide">
-            <div class="modal-header"><span>📊 消耗记录</span><button class="modal-close" id="usageClose">&times;</button></div>
+            <div class="modal-header"><span>📊 消耗记录</span><button class="modal-close" id="usageClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="usage-summary" id="usageSummary" style="margin-bottom:12px;font-size:13px;color:var(--text-dim);"></div>
                 <div class="usage-list" id="usageList" style="max-height:400px;overflow-y:auto;">
@@ -579,7 +579,7 @@
     <!-- 充值弹窗 -->
     <div class="modal-overlay" id="redeemModal">
         <div class="modal">
-            <div class="modal-header"><span>💳 积分充值</span><button class="modal-close" id="redeemClose">&times;</button></div>
+            <div class="modal-header"><span>💳 积分充值</span><button class="modal-close" id="redeemClose" aria-label="关闭">&times;</button></div>
             <div class="modal-body">
                 <div class="form-group"><label>输入充值密钥</label><input type="text" id="redeemCode" placeholder="如 TAVERN-XXXXXXXXXXXX" style="text-transform:uppercase;" maxlength="32"></div>
                 <button class="btn-add" id="redeemSubmitBtn" style="width:100%;">⚡ 立即兑换</button>
@@ -597,14 +597,14 @@
         <div class="modal modal-wide">
             <div class="modal-header">
                 <span id="reviewTitle">故事回顾</span>
-                <button class="modal-close" id="reviewClose">&times;</button>
+                <button class="modal-close" id="reviewClose" aria-label="关闭">&times;</button>
             </div>
             <div class="modal-body story-review-body" id="reviewContent"></div>
         </div>
     </div>
 
     <!-- Version -->
-    <div class="version-display" id="versionDisplay" style="position:fixed;bottom:8px;right:12px;font-size:11px;color:var(--text-dim);opacity:0.6;">v2.0.4</div>
+    <div class="version-display" id="versionDisplay" style="position:fixed;bottom:8px;right:12px;font-size:11px;color:var(--text-dim);opacity:0.6;"></div>
 
     <!-- Toast 通知 -->
     <div class="toast-container" id="toastContainer"></div>

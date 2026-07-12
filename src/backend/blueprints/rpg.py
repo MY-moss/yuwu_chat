@@ -591,6 +591,8 @@ def rpg_act():
         })
 
         rmap = _parse_relationships(sections.get("关系", ""))
+        if not rmap:
+            rmap = prev.get("关系_map", {})
         sections["关系_map"] = rmap
 
         save_sessions()
@@ -686,10 +688,10 @@ def rpg_act_stream():
         full_text = ""
         try:
             body["stream"] = True
-            with requests.post(api_url, headers=headers, json=body, timeout=60, stream=True) as resp:
+            with requests.post(api_url, headers=headers, json=body, timeout=(10, 60), stream=True, allow_redirects=False) as resp:
                 if resp.status_code in (400, 415, 422, 500):
                     body["stream"] = False
-                    with requests.post(api_url, headers=headers, json=body, timeout=60) as resp_retry:
+                    with requests.post(api_url, headers=headers, json=body, timeout=(10, 60), allow_redirects=False) as resp_retry:
                         if resp_retry.status_code == 200:
                             data = resp_retry.json()
                             choices = data.get("choices", [])
@@ -764,6 +766,8 @@ def rpg_act_stream():
                 db.session.commit()
 
         rmap = _parse_relationships(sections.get("关系", ""))
+        if not rmap:
+            rmap = prev.get("关系_map", {})
         sections["关系_map"] = rmap
 
         with _sessions_lock:
@@ -955,6 +959,7 @@ def roll_dice():
             return jsonify({"error": "无权操作"}), 403
 
     import random
+    # [AUDIT-H08] 骰子使用 random 而非 secrets，可预测。改用 secrets.randbelow(20)+1
     roll = random.randint(1, 20)
     total = roll + modifier
     success = total >= difficulty

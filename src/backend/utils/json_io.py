@@ -12,7 +12,8 @@ from models import (db, Agent, WorldRating, WorldBook, WorldSubmission,
                     UsageLog, RateLimitEntry)
 from state import (rpg_sessions, _json_cache, _json_cache_mtime,
                    _sessions_lock, _ratings_lock, _worlds_lock,
-                   _submissions_lock, _usage_log_lock, _json_cache_lock)
+                   _submissions_lock, _usage_log_lock, _json_cache_lock,
+                   _rate_limit_lock)
 from config import (BASE_PATH, AGENTS_FILE, WORLDS_FILE, RATINGS_FILE,
                     SUBMISSIONS_FILE, USAGE_LOG_FILE, SESSIONS_FILE,
                     VERSION_FILE, CHANGELOG_FILE, RPG_FORMAT_FILE)
@@ -104,12 +105,6 @@ def _cached_json_load(file_path, default=None):
     except Exception as e:
         logger.error(f"_cached_json_load failed for {file_path}: {e}")
         return default
-
-
-def _invalidate_json_cache(file_path):
-    with _json_cache_lock:
-        _json_cache.pop(file_path, None)
-        _json_cache_mtime.pop(file_path, None)
 
 
 def save_sessions():
@@ -293,15 +288,17 @@ def log_usage(user_id, username, model, tokens, cost, endpoint):
 
 
 def check_rate_limit(action, key, max_attempts=5, window=60):
-    cutoff = datetime.now() - timedelta(seconds=window)
-    RateLimitEntry.query.filter(RateLimitEntry.created_at < cutoff).filter_by(action=action).delete()
-    recent = RateLimitEntry.query.filter(
-        RateLimitEntry.action == action,
-        RateLimitEntry.key == key,
-        RateLimitEntry.created_at >= cutoff
-    ).count()
-    if recent >= max_attempts:
-        return False
-    db.session.add(RateLimitEntry(action=action, key=key))
-    db.session.commit()
-    return True
+    with _rate_limit_lock:
+        cutoff = datetime.now() - timedelta(seconds=window)
+        RateLimitEntry.query.filter(RateLimitEntry.created_at < cutoff).filter_by(action=action).delete()
+        recent = RateLimitEntry.query.filter(
+            RateLimitEntry.action == action,
+            RateLimitEntry.key == key,
+            RateLimitEntry.created_at >= cutoff
+        ).count()
+        if recent >= max_attempts:
+            db.session.commit()
+            return False
+        db.session.add(RateLimitEntry(action=action, key=key))
+        db.session.commit()
+        return True

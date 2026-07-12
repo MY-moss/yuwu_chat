@@ -99,20 +99,12 @@ async function register() {
         showAuthError('密码长度至少8位');
         return;
     }
-    if (!/[a-z]/.test(password)) {
-        showAuthError('密码必须包含至少一个小写字母');
-        return;
-    }
-    if (!/[A-Z]/.test(password)) {
-        showAuthError('密码必须包含至少一个大写字母');
+    if (!/[a-zA-Z]/.test(password)) {
+        showAuthError('密码必须包含至少一个字母');
         return;
     }
     if (!/[0-9]/.test(password)) {
         showAuthError('密码必须包含至少一个数字');
-        return;
-    }
-    if (!/[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;\/\']/.test(password)) {
-        showAuthError('密码必须包含至少一个特殊字符');
         return;
     }
 
@@ -251,20 +243,24 @@ async function changePassword() {
     }
 }
 
-function showForcePasswordChange() {
+async function showForcePasswordChange() {
     const pwd = $("loginPassword").value.trim();
     if (!pwd || pwd.length < 8) {
-        logout();  // [AUDIT-E06] logout() 未 await，后续 api() 请求可能携带旧认证状态
+        await logout();
         return;
     }
     toast("正在更新密码...");
-    api("/api/auth/change-password", {
-        method: "POST",
-        body: JSON.stringify({ old_password: $("loginPassword").value, new_password: pwd })
-    }).then(data => {
-        if (data.error) { toast(data.error); logout(); }
+    try {
+        const data = await api("/api/auth/change-password", {
+            method: "POST",
+            body: JSON.stringify({ old_password: $("loginPassword").value, new_password: pwd })
+        });
+        if (data.error) { toast(data.error); await logout(); }
         else { toast("密码已更新，欢迎回来！"); showMainScreen(); }
-    }).catch(() => { toast("密码更新失败，请重试"); logout(); });
+    } catch (e) {
+        toast("密码更新失败，请重试");
+        await logout();
+    }
 }
 
 function showAuthError(msg) {

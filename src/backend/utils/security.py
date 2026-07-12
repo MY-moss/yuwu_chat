@@ -61,6 +61,7 @@ def is_safe_url(url):
         hostname = p.hostname
         if not hostname:
             return False, '无效的主机名'
+        # [AUDIT-M01] 未阻止 RFC 1918 内网地址段（10.x.x.x, 192.168.x.x, 172.16-31.x.x）
         if hostname in ('localhost', '127.0.0.1', '0.0.0.0', '::1', 'localhost.localdomain'):
             return False, '不允许访问本地地址'
         try:
@@ -126,7 +127,12 @@ def decrypt_value(ciphertext):
             kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100000)
             key = base64.urlsafe_b64encode(kdf.derive(key_material))
             f = Fernet(key)
-            return f.decrypt(token).decode()
+            try:
+                return f.decrypt(token).decode()
+            except Exception:
+                token_b64 = token.decode('ascii')
+                token_bytes = base64.urlsafe_b64decode(token_b64)
+                return f.decrypt(token_bytes).decode()
     except Exception:
         pass
     try:
@@ -150,14 +156,10 @@ def safe_commit():
 def validate_password(password):
     if len(password) < 8:
         return False, "密码长度至少8位"
-    if not re.search(r'[a-z]', password):
-        return False, "密码必须包含至少一个小写字母"
-    if not re.search(r'[A-Z]', password):
-        return False, "密码必须包含至少一个大写字母"
+    if not re.search(r'[a-zA-Z]', password):
+        return False, "密码必须包含至少一个字母"
     if not re.search(r'[0-9]', password):
         return False, "密码必须包含至少一个数字"
-    if not re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;/\']', password):
-        return False, "密码必须包含至少一个特殊字符"
     if password.lower() in _COMMON_PASSWORDS:
         return False, "密码过于常见，请使用更复杂的密码"
     return True, ""

@@ -12,6 +12,8 @@ import { initWorldUI } from './world-ui.js';
 import { initAdmin } from './admin.js';
 import { initPersonalApi } from './personal-api.js';
 import { initExchange } from './exchange.js';
+import { initThreeBg, setRingsVisible } from './three-bg.js';
+import { applyWorldCard3D, applyChatBubble3D } from './three-card.js';
 
 async function switchMode(newMode) {
     if (state.isSwitchingMode || state.currentMode === newMode) return;
@@ -147,6 +149,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     initGlobalEvents();
     initCounters();
 
+    // Three.js 3D 粒子背景初始化（WebGL 不支持时降级为 CSS 背景）
+    initThreeBg().then(ok => {
+        if (ok) console.info('[app] Three.js 背景已启用');
+    });
+
     // 认证屏副标题打字机效果
     const authSub = $('authSub');
     if (authSub) {
@@ -156,6 +163,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 认证屏光标聚光灯效果（源自方案一）
     const cleanupSpotlight = initSpotlight();
     window.addEventListener('beforeunload', cleanupSpotlight);
+
+    // M11: 页面卸载时清理所有定时器，防止内存泄漏
+    window.addEventListener('beforeunload', () => {
+        if (state._timers && state._timers.size > 0) {
+            state._timers.forEach(id => clearInterval(id));
+            state._timers.clear();
+        }
+        if (state._heartbeatInterval) clearInterval(state._heartbeatInterval);
+        if (state.spectateTimer) clearInterval(state.spectateTimer);
+        if (state.spectateRefreshTimer) clearInterval(state.spectateRefreshTimer);
+        if (state.actGameStatusTimeout) clearTimeout(state.actGameStatusTimeout);
+    });
 
     // 跑马灯无缝循环（源自方案六）
     initMarquee();

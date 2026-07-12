@@ -99,20 +99,12 @@ async function register() {
         showAuthError('密码长度至少8位');
         return;
     }
-    if (!/[a-z]/.test(password)) {
-        showAuthError('密码必须包含至少一个小写字母');
-        return;
-    }
-    if (!/[A-Z]/.test(password)) {
-        showAuthError('密码必须包含至少一个大写字母');
+    if (!/[a-zA-Z]/.test(password)) {
+        showAuthError('密码必须包含至少一个字母');
         return;
     }
     if (!/[0-9]/.test(password)) {
         showAuthError('密码必须包含至少一个数字');
-        return;
-    }
-    if (!/[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;\/\']/.test(password)) {
-        showAuthError('密码必须包含至少一个特殊字符');
         return;
     }
 

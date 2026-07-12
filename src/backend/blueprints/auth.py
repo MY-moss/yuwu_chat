@@ -57,6 +57,7 @@ def register():
     session.permanent = True
     session['_user_token_version'] = user.token_version or 1
     session['_csrf_token'] = secrets.token_hex(16)
+    # [AUDIT-H03] 登录/注册响应体暴露 csrf_token，中间人可窃取
     return jsonify({"message": "注册成功", "user": user.to_dict(), "csrf_token": session['_csrf_token']}), 201
 
 
@@ -81,6 +82,7 @@ def login():
     session['_user_token_version'] = user.token_version or 1
     session['_csrf_token'] = secrets.token_hex(16)
 
+    # [AUDIT-H03] 登录响应体暴露 csrf_token
     return jsonify({"message": "登录成功", "user": user.to_dict(), "password_reset_required": user.password_reset_required or False, "csrf_token": session['_csrf_token']})
 
 

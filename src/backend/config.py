@@ -23,21 +23,20 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         'poolclass': QueuePool,
-        'pool_size': 10,
-        'max_overflow': 20,
+        'pool_size': 5,       # M04: 减少（SQLite文件锁是瓶颈，原10+20=30连接过多致database is locked）
+        'max_overflow': 0,    # M04: 不允许溢出连接
         'pool_pre_ping': True,
         'pool_recycle': 3600,
-        'connect_args': {'timeout': 30}
+        'connect_args': {'timeout': 30, 'check_same_thread': False}  # M04: 允许跨线程共享连接
     }
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
     JSON_AS_ASCII = False
-    TEMPLATES_AUTO_RELOAD = True
+    TEMPLATES_AUTO_RELOAD = os.getenv('FLASK_DEBUG', '0') == '1'  # L08: 仅 DEBUG 模式自动重载
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
-    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
-    # [AUDIT-N03] SECRET_KEY 占位符是确定性字符串，运行时由 create_app 检测并替换
+    SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() == 'true'  # M03: app.py before_request 钩子根据请求协议动态覆盖
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
-    SECRET_KEY = 'GENERATE_RANDOM_KEY_IN_PRODUCTION'  # 运行时由 create_app 替换为文件持久化的随机密钥
+    SECRET_KEY = None  # L09: 运行时由 create_app 从 .secret_key 文件加载或生成随机密钥
 
 
 # ===== JSON 数据文件路径 =====

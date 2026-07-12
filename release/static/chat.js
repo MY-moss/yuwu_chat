@@ -5,6 +5,7 @@ import { state } from './state.js';
 import { $, toast, escapeHtml, updateUserInfo, getSelectedModel } from './utils.js';
 import { api } from './api.js';
 import { renderMarkdown, highlightCode } from './renderer.js';
+import { applyChatBubble3D } from './three-card.js';
 
 export async function populateModels() {
     const sel = $('modelSelect');
@@ -136,7 +137,7 @@ function restoreAgentState(agentId) {
     if (typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
         chatBox.innerHTML = DOMPurify.sanitize(saved.messages, { ADD_TAGS: ['pre','code'], ADD_ATTR: ['class'] });
     } else {
-        chatBox.innerHTML = saved.messages;
+        chatBox.textContent = saved.messages;  // M10: DOMPurify 未加载时安全降级为 textContent
     }
     chatBox.scrollTop = saved.scrollTop;
 }
@@ -282,7 +283,7 @@ function appendMessage(text, role, name) {
     div.appendChild(content);
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
-    setTimeout(() => highlightCode(content), 0);
+    setTimeout(() => { highlightCode(content); applyChatBubble3D(); }, 0);
     return div;
 }
 

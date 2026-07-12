@@ -64,82 +64,107 @@ async function deleteAdminModel(id) {
 
 // --- Admin Users ---
 export async function loadAdminUsers() {
-    const users = await api('/api/admin/users');
-    $('adminUsersList').innerHTML = users.map(u => `
-        <div class="admin-list-item">
-            <div class="ali-main">
-                <div class="ali-name">${escapeHtml(u.username)} ${u.role === 'admin' ? '(管理员)' : ''}</div>
-                <div class="ali-meta">ID: ${u.id} | 积分: ${u.credits} | 注册: ${new Date(u.created_at).toLocaleDateString()}</div>
+    try {
+        const users = await api('/api/admin/users');
+        $('adminUsersList').innerHTML = users.map(u => `
+            <div class="admin-list-item">
+                <div class="ali-main">
+                    <div class="ali-name">${escapeHtml(u.username)} ${u.role === 'admin' ? '(管理员)' : ''}</div>
+                    <div class="ali-meta">ID: ${u.id} | 积分: ${u.credits} | 注册: ${new Date(u.created_at).toLocaleDateString()}</div>
+                </div>
+                <div class="ali-actions">
+                    <button class="btn-edit-u" data-uid="${u.id}">💰</button>
+                    <button class="btn-del-u" data-uid="${u.id}">🗑️</button>
+                </div>
             </div>
-            <div class="ali-actions">
-                <button class="btn-edit-u" data-uid="${u.id}">💰</button>
-                <button class="btn-del-u" data-uid="${u.id}">🗑️</button>
-            </div>
-        </div>
-    `).join('');
+        `).join('');
 
-    document.querySelectorAll('.btn-edit-u').forEach(btn => {
-        btn.addEventListener('click', () => editAdminUser(parseInt(btn.dataset.uid)));
-    });
-    document.querySelectorAll('.btn-del-u').forEach(btn => {
-        btn.addEventListener('click', () => deleteAdminUser(parseInt(btn.dataset.uid)));
-    });
+        document.querySelectorAll('.btn-edit-u').forEach(btn => {
+            btn.addEventListener('click', () => editAdminUser(parseInt(btn.dataset.uid)));
+        });
+        document.querySelectorAll('.btn-del-u').forEach(btn => {
+            btn.addEventListener('click', () => deleteAdminUser(parseInt(btn.dataset.uid)));
+        });
+    } catch (e) {
+        console.error('[ERROR] loadAdminUsers:', e);
+        $('adminUsersList').innerHTML = '<div class="status-empty">加载失败</div>';
+    }
 }
 
 async function editAdminUser(id) {
     if (!Number.isInteger(id) || id <= 0) { toast('无效的用户ID'); return; }
-    const users = await api('/api/admin/users');
-    const u = users.find(x => x.id === id);
-    if (!u) return;
-    const newCredits = prompt(`为 ${u.username} 设置新积分：`, u.credits);
-    if (newCredits === null) return;
-    const credits = parseInt(newCredits);
-    if (isNaN(credits) || credits < 0) {
-        toast('请输入有效的积分数量');
-        return;
+    try {
+        const users = await api('/api/admin/users');
+        const u = users.find(x => x.id === id);
+        if (!u) return;
+        const newCredits = prompt(`为 ${u.username} 设置新积分：`, u.credits);
+        if (newCredits === null) return;
+        const credits = parseInt(newCredits);
+        if (isNaN(credits) || credits < 0) {
+            toast('请输入有效的积分数量');
+            return;
+        }
+        await api(`/api/admin/users/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ credits })
+        });
+        loadAdminUsers();
+    } catch (e) {
+        console.error('[ERROR] editAdminUser:', e);
+        toast('操作失败，请重试');
     }
-    await api(`/api/admin/users/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ credits })
-    });
-    loadAdminUsers();
 }
 
 async function deleteAdminUser(id) {
     if (!Number.isInteger(id) || id <= 0) { toast('无效的用户ID'); return; }
     if (!confirm('确定要删除这个用户吗？')) return;
-    await api(`/api/admin/users/${id}`, { method: 'DELETE' });
-    loadAdminUsers();
+    try {
+        await api(`/api/admin/users/${id}`, { method: 'DELETE' });
+        loadAdminUsers();
+    } catch (e) {
+        console.error('[ERROR] deleteAdminUser:', e);
+        toast('删除失败，请重试');
+    }
 }
 
 // --- Credit Keys ---
 export async function loadAdminKeys() {
-    const keys = await api('/api/admin/credit-keys');
-    $('adminKeysList').innerHTML = keys.map(k => `
-        <div class="key-list-item">
-            <span class="key-code">${escapeHtml(k.key_preview)}…</span>
-            <span class="key-info">
-                <div>💰 ${k.credits} 积分</div>
-                <div class="key-meta">
-                    ${k.used
-                        ? `<span class="key-used">✅ 已使用 (用户ID: ${k.used_by})</span>`
-                        : `<span class="key-unused">🔓 未使用</span>`}
-                    · ${new Date(k.created_at).toLocaleDateString()}
-                </div>
-            </span>
-            ${!k.used ? `<span class="ali-actions"><button class="del" data-action="delete-key" data-kid="${k.id}">🗑️</button></span>` : ''}
-        </div>
-    `).join('');
-    $('adminKeysList').querySelectorAll('[data-action="delete-key"]').forEach(btn => {
-        btn.addEventListener('click', () => deleteKey(parseInt(btn.dataset.kid)));
-    });
+    try {
+        const keys = await api('/api/admin/credit-keys');
+        $('adminKeysList').innerHTML = keys.map(k => `
+            <div class="key-list-item">
+                <span class="key-code">${escapeHtml(k.key_preview)}…</span>
+                <span class="key-info">
+                    <div>💰 ${k.credits} 积分</div>
+                    <div class="key-meta">
+                        ${k.used
+                            ? `<span class="key-used">✅ 已使用 (用户ID: ${k.used_by})</span>`
+                            : `<span class="key-unused">🔓 未使用</span>`}
+                        · ${new Date(k.created_at).toLocaleDateString()}
+                    </div>
+                </span>
+                ${!k.used ? `<span class="ali-actions"><button class="del" data-action="delete-key" data-kid="${k.id}">🗑️</button></span>` : ''}
+            </div>
+        `).join('');
+        $('adminKeysList').querySelectorAll('[data-action="delete-key"]').forEach(btn => {
+            btn.addEventListener('click', () => deleteKey(parseInt(btn.dataset.kid)));
+        });
+    } catch (e) {
+        console.error('[ERROR] loadAdminKeys:', e);
+        $('adminKeysList').innerHTML = '<div class="status-empty">加载失败</div>';
+    }
 }
 
 async function deleteKey(id) {
     if (!Number.isInteger(id) || id <= 0) { toast('无效的密钥ID'); return; }
     if (!confirm('确定要删除这个未使用的密钥吗？')) return;
-    await api(`/api/admin/credit-keys/${id}`, { method: 'DELETE' });
-    loadAdminKeys();
+    try {
+        await api(`/api/admin/credit-keys/${id}`, { method: 'DELETE' });
+        loadAdminKeys();
+    } catch (e) {
+        console.error('[ERROR] deleteKey:', e);
+        toast('删除失败，请重试');
+    }
 }
 
 // --- Admin Stats ---
@@ -174,38 +199,53 @@ export async function loadAdminStats() {
 
 // --- Admin Submissions ---
 export async function loadAdminSubmissions() {
-    const subs = await api('/api/rpg/worlds/submissions');
-    $('adminSubmissionsList').innerHTML = subs.length === 0
-        ? '<div class="status-empty">暂无待审核投稿</div>'
-        : subs.map(s => `
-            <div class="world-list-item">
-                <span style="font-size:22px;">${escapeHtml(s.emoji || '📖')}</span>
-                <span style="flex:1;"><strong>${escapeHtml(s.name)}</strong><br><small style="color:var(--text-dim)">👤 ${escapeHtml(s.submitter)} · ${escapeHtml(s.genre || '')}</small></span>
-                <span class="ali-actions">
-                    <button class="btn-approve-s" data-sid="${escapeHtml(s.id)}">✅ 通过</button>
-                    <button class="btn-reject-s" data-sid="${escapeHtml(s.id)}">❌ 拒绝</button>
-                </span>
-            </div>
-        `).join('');
+    try {
+        const subs = await api('/api/rpg/worlds/submissions');
+        $('adminSubmissionsList').innerHTML = subs.length === 0
+            ? '<div class="status-empty">暂无待审核投稿</div>'
+            : subs.map(s => `
+                <div class="world-list-item">
+                    <span style="font-size:22px;">${escapeHtml(s.emoji || '📖')}</span>
+                    <span style="flex:1;"><strong>${escapeHtml(s.name)}</strong><br><small style="color:var(--text-dim)">👤 ${escapeHtml(s.submitter)} · ${escapeHtml(s.genre || '')}</small></span>
+                    <span class="ali-actions">
+                        <button class="btn-approve-s" data-sid="${escapeHtml(s.id)}">✅ 通过</button>
+                        <button class="btn-reject-s" data-sid="${escapeHtml(s.id)}">❌ 拒绝</button>
+                    </span>
+                </div>
+            `).join('');
 
-    document.querySelectorAll('.btn-approve-s').forEach(btn => {
-        btn.addEventListener('click', () => approveSub(btn.dataset.sid));
-    });
-    document.querySelectorAll('.btn-reject-s').forEach(btn => {
-        btn.addEventListener('click', () => rejectSub(btn.dataset.sid));
-    });
+        document.querySelectorAll('.btn-approve-s').forEach(btn => {
+            btn.addEventListener('click', () => approveSub(btn.dataset.sid));
+        });
+        document.querySelectorAll('.btn-reject-s').forEach(btn => {
+            btn.addEventListener('click', () => rejectSub(btn.dataset.sid));
+        });
+    } catch (e) {
+        console.error('[ERROR] loadAdminSubmissions:', e);
+        $('adminSubmissionsList').innerHTML = '<div class="status-empty">加载失败</div>';
+    }
 }
 
 async function approveSub(id) {
     if (!confirm('通过后将上架到世界书列表，确认？')) return;
-    await api(`/api/rpg/worlds/submissions/${id}`, { method: 'POST', body: JSON.stringify({ action: 'approve' }) });
-    loadAdminSubmissions();
+    try {
+        await api(`/api/rpg/worlds/submissions/${id}`, { method: 'POST', body: JSON.stringify({ action: 'approve' }) });
+        loadAdminSubmissions();
+    } catch (e) {
+        console.error('[ERROR] approveSub:', e);
+        toast('操作失败，请重试');
+    }
 }
 
 async function rejectSub(id) {
     if (!confirm('拒绝后将删除此投稿，确认？')) return;
-    await api(`/api/rpg/worlds/submissions/${id}`, { method: 'POST', body: JSON.stringify({ action: 'reject' }) });
-    loadAdminSubmissions();
+    try {
+        await api(`/api/rpg/worlds/submissions/${id}`, { method: 'POST', body: JSON.stringify({ action: 'reject' }) });
+        loadAdminSubmissions();
+    } catch (e) {
+        console.error('[ERROR] rejectSub:', e);
+        toast('操作失败，请重试');
+    }
 }
 
 // --- Admin: All Sessions ---

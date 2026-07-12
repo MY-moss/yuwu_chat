@@ -1,6 +1,38 @@
 {
     "history": [
         {
+            "version": "v2.2.2.1",
+            "old_version": "v2.2.2.0",
+            "type": "build",
+            "type_desc": "P3低风险修复",
+            "description": "2026-07-11 P3低风险修复6项：L08 config.py TEMPLATES_AUTO_RELOAD=True→按FLASK_DEBUG环境变量动态设置；L09 config.py SECRET_KEY占位符'GENERATE_RANDOM_KEY_IN_PRODUCTION'→None+app.py移除占位符字符串检测；L13 state.py锁数量注释更新为9个(7RLock+2Lock)；L14 json_io.py删除_invalidate_json_cache死代码(mtime检测已自动处理缓存失效)；L15 index.html清理[AUDIT-M03]过时注释(CSP已在后端app.py设置)；L16 index.html版本号v2.0.4移除(JS动态加载)+13个&times;关闭按钮添加aria-label=\"关闭\"无障碍属性。",
+            "timestamp": "2026-07-11 20:00:00"
+        },
+        {
+            "version": "v2.2.2.0",
+            "old_version": "v2.2.1.2",
+            "type": "minor",
+            "type_desc": "UI美化增强",
+            "description": "2026-07-11 Three.js 3D视觉效果集成：方案1 3D粒子背景系统（three-bg.js，BufferGeometry+PointsMaterial，自适应粒子数量3000/1200/600，加色混合+雾效+动态透明度，WebGL不支持时降级为CSS背景）；方案2 登录界面3D装饰环（3层TorusGeometry旋转环，加色混合发光效果）；方案3 世界书卡片3D悬停效果（three-card.js，鼠标跟随倾斜+光泽反射+动态阴影）；方案4 聊天消息气泡3D效果（悬停倾斜+深度阴影）。新增3个模块：three-config.js（统一配置入口）、three-bg.js（WebGL粒子+装饰环）、three-card.js（CSS 3D卡片效果）。index.html新增canvas#threeCanvas背景层。修复app.py UsageLog迁移函数try/except缩进语法错误。",
+            "timestamp": "2026-07-11 18:00:00"
+        },
+        {
+            "version": "v2.2.1.2",
+            "old_version": "v2.2.1.1",
+            "type": "build",
+            "type_desc": "用户体验优化",
+            "description": "2026-07-11 密码验证规则放宽：移除特殊字符要求，大小写字母合并为只需包含至少一个字母即可（后端security.py validate_password + 前端auth.js register函数同步更新）",
+            "timestamp": "2026-07-11 12:00:00"
+        },
+        {
+            "version": "v2.2.1.1",
+            "old_version": "v2.2.1.0",
+            "type": "patch",
+            "type_desc": "P2中危修复",
+            "description": "2026-07-10 P2中危修复8项：M01 CSP移除unsafe-inline/unsafe-eval（script-src改为纯外部引用，ES Module不受unsafe-inline影响）；M02 Flask开发服务器→优先Waitress生产WSGI(threads=8)+回退Flask dev server并警告；M04 SQLite QueuePool写锁争用→pool_size 10→5+max_overflow 20→0+check_same_thread=False+PRAGMA journal_mode=WAL+PRAGMA busy_timeout=30000；M05 CreditKey无盐SHA256→HMAC-SHA256加盐(pepper=SECRET_KEY，迁移函数同步更新)；M06 cost字段Float→Numeric(10,6)+to_dict/admin.py float()序列化；M10 chat.js L139 innerHTML fallback→textContent安全降级(feedback.js已用escapeHtml/renderMarkdown已用DOMPurify，均为误报)；M11 定时器泄漏→app.js beforeunload清理所有_timers/heartbeat/spectateTimer/spectateRefreshTimer/actGameStatusTimeout+rpg.js spectateRefreshTimer用clearManagedTimer替代clearInterval；M12 admin.js 8个函数(loadAdminUsers/editAdminUser/deleteAdminUser/loadAdminKeys/deleteKey/loadAdminSubmissions/approveSub/rejectSub)添加try/catch+toast错误提示。现存~18项(0高危+2中危M07/M08+16低危)",
+            "timestamp": "2026-07-10 12:00:00"
+        },
+        {
             "version": "v2.2.1.0",
             "old_version": "v2.2.0.8",
             "type": "patch",

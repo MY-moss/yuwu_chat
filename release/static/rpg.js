@@ -2,9 +2,10 @@
 // 文件: rpg.js | 职责: 跑团系统（世界书/评分/会话/游戏核心/骰子/故事线/分享/观战）
 // ============================================================
 import { state } from './state.js';
-import { $, toast, escapeHtml, showLoading, hideLoading, updateProgress, updateLoadingStatus, updateUserInfo, getSelectedModel, formatTime, setManagedInterval } from './utils.js';
+import { $, toast, escapeHtml, showLoading, hideLoading, updateProgress, updateLoadingStatus, updateUserInfo, getSelectedModel, formatTime, setManagedInterval, clearManagedTimer } from './utils.js';
 import { api, apiStream } from './api.js';
 import { renderMarkdown, highlightCode, cleanText, renderStory, renderStatus, parseStatusValue } from './renderer.js';
+import { applyWorldCard3D } from './three-card.js';
 
 const LOADING_STATES = [
     '正在初始化游戏世界...',
@@ -162,6 +163,7 @@ export async function loadWorlds() {
                 startGame(card.dataset.id);
             });
         });
+        applyWorldCard3D();
     } catch (e) {
         $('worldGrid').innerHTML = '<div class="status-empty" style="grid-column:1/-1;">加载失败，请刷新重试</div>';
         console.error('[ERROR] loadWorlds:', e);
@@ -1017,7 +1019,7 @@ export function initRpg() {
         const square = $('spectateSquare');
         if (square.style.display !== 'none') {
             square.style.display = 'none';
-            if (state.spectateRefreshTimer) { clearInterval(state.spectateRefreshTimer); state.spectateRefreshTimer = null; }
+            if (state.spectateRefreshTimer) { clearManagedTimer(state.spectateRefreshTimer); state.spectateRefreshTimer = null; }
             return;
         }
         loadSpectateSquare();

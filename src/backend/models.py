@@ -129,8 +129,11 @@ class CreditKey(db.Model):
 
     @staticmethod
     def hash_key(plaintext):
-        """返回 (sha256_hexdigest, preview)"""
-        return hashlib.sha256(plaintext.encode()).hexdigest(), plaintext[:12]
+        """返回 (hmac_sha256_hexdigest, preview) — M05: 使用 HMAC-SHA256 加盐防彩虹表"""
+        import hmac
+        from flask import current_app
+        pepper = current_app.config.get('SECRET_KEY', '')
+        return hmac.new(pepper.encode(), plaintext.encode(), hashlib.sha256).hexdigest(), plaintext[:12]
 
     def to_dict(self):
         return {
@@ -147,11 +150,11 @@ class Feedback(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'), nullable=True, index=True)
     username = db.Column(db.String(80), nullable=False)  # [AUDIT-Q08] 非规范化存储，用户改名后数据不一致
-    category = db.Column(db.String(32), nullable=False, default='suggestion')  # [AUDIT-P04] 无索引
+    category = db.Column(db.String(32), nullable=False, default='suggestion')  # [AUDIT-M06] 无索引
     rating = db.Column(db.Integer, nullable=False, default=3)
     title = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
-    status = db.Column(db.String(20), nullable=False, default='open')  # [AUDIT-P04] 无索引
+    status = db.Column(db.String(20), nullable=False, default='open')  # [AUDIT-M06] 无索引
     admin_note = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
@@ -295,7 +298,7 @@ class UsageLog(db.Model):
     username = db.Column(db.String(80), nullable=False)
     model = db.Column(db.String(100), nullable=False)
     tokens = db.Column(db.Integer, default=0)
-    cost = db.Column(db.Float, default=0.0)
+    cost = db.Column(db.Numeric(10, 6), default=0)  # M06: Numeric替代Float，避免浮点精度累积误差
     endpoint = db.Column(db.String(50), default='chat')
     created_at = db.Column(db.DateTime, default=datetime.now, index=True)
 
@@ -303,7 +306,7 @@ class UsageLog(db.Model):
         return {
             'id': self.id, 'user_id': self.user_id,
             'username': self.username, 'model': self.model,
-            'tokens': self.tokens, 'cost': self.cost,
+            'tokens': self.tokens, 'cost': float(self.cost) if self.cost else 0,
             'endpoint': self.endpoint,
             'time': self.created_at.isoformat()
         }

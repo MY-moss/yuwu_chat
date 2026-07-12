@@ -133,7 +133,7 @@ def admin_delete_model(model_id):
 @login_required
 @admin_required
 def admin_list_users():
-    # [AUDIT-S21] 用户列表无分页，大量用户时 OOM 风险
+    # [AUDIT-H01] 用户列表无分页，大量用户时 OOM 风险
     users = User.query.all()
     return jsonify([u.to_dict() for u in users])
 
@@ -212,7 +212,7 @@ def admin_delete_user(user_id):
 @login_required
 @admin_required
 def admin_stats():
-    # [AUDIT-P10] admin_stats 无分页/过滤，对全表进行聚合
+    # [AUDIT-H02] admin_stats 无分页/过滤/时间范围，全表聚合性能差
     from sqlalchemy import func
     stats = db.session.query(
         func.count(UsageLog.id).label('total_calls'),
@@ -430,7 +430,7 @@ def redeem_key():
     if not code:
         return jsonify({"error": "请输入充值密钥"}), 400
 
-    code_hash = hashlib.sha256(code.encode()).hexdigest()
+    code_hash, _ = CreditKey.hash_key(code)
     key = CreditKey.query.filter_by(key=code_hash, used=False).first()
     if not key:
         return jsonify({"error": "无效的充值密钥或已被使用"}), 404
@@ -443,7 +443,7 @@ def redeem_key():
         return jsonify({"error": "该密钥已被使用"}), 400
 
     db.session.execute(
-        db.text("UPDATE user SET credits = credits + :amt, token_version = token_version + 1 WHERE id = :uid"),
+        db.text("UPDATE user SET credits = credits + :amt WHERE id = :uid"),
         {"amt": key.credits, "uid": current_user.id}
     )
     db.session.commit()

@@ -60,15 +60,14 @@ def get_model_price(model_id):
 
 
 def deduct_credits(user, amount, max_retries=3):
-    """Deduct credits with optimistic locking via token_version."""
+    """Deduct credits with optimistic locking."""
     for attempt in range(max_retries):
-        current_ver = user.token_version or 1
         result = db.session.execute(
             db.text(
-                "UPDATE user SET credits = credits - :amt, token_version = token_version + 1 "
-                "WHERE id = :uid AND credits >= :amt AND token_version = :ver"
+                "UPDATE user SET credits = credits - :amt "
+                "WHERE id = :uid AND credits >= :amt"
             ),
-            {"amt": amount, "uid": user.id, "ver": current_ver}
+            {"amt": amount, "uid": user.id}
         )
         db.session.commit()
         if result.rowcount > 0:

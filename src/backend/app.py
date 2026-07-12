@@ -114,6 +114,11 @@ def migrate_json_to_sqlite():
         if os.path.exists(SUBMISSIONS_FILE):
             try:
                 data = _cached_json_load(SUBMISSIONS_FILE, [])
+                # [AUDIT-C02] 兼容 {"submissions": []} 和裸数组两种格式
+                if isinstance(data, dict):
+                    data = data.get('submissions', data.get('data', []))
+                if not isinstance(data, list):
+                    data = []
                 for s in data:
                     db.session.add(WorldSubmission(
                         id=s.get('id'), name=s.get('name', ''),
@@ -182,10 +187,14 @@ def _migrate_foreign_keys():
     except Exception:
         return
 
+    # H01: 使用裸 DBAPI 连接在事务外执行 PRAGMA foreign_keys
+    # SQLAlchemy session 始终在事务内，PRAGMA foreign_keys 在事务内执行是 no-op
+    raw_conn = db.engine.raw_connection()
     try:
-        db.session.execute(db.text("PRAGMA foreign_keys=OFF"))
+        cursor = raw_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=OFF")
 
-        db.session.execute(db.text("""
+        cursor.execute("""
             CREATE TABLE _umc_new (
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES user(id) ON DELETE CASCADE,
@@ -198,12 +207,12 @@ def _migrate_foreign_keys():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (user_id, model_id)
             )
-        """))
-        db.session.execute(db.text("INSERT INTO _umc_new (id, user_id, model_id, name, label, api_base, api_key, priority, created_at) SELECT id, user_id, model_id, name, label, api_base, api_key, priority, created_at FROM user_model_config"))
-        db.session.execute(db.text("DROP TABLE user_model_config"))
-        db.session.execute(db.text("ALTER TABLE _umc_new RENAME TO user_model_config"))
+        """)
+        cursor.execute("INSERT INTO _umc_new (id, user_id, model_id, name, label, api_base, api_key, priority, created_at) SELECT id, user_id, model_id, name, label, api_base, api_key, priority, created_at FROM user_model_config")
+        cursor.execute("DROP TABLE user_model_config")
+        cursor.execute("ALTER TABLE _umc_new RENAME TO user_model_config")
 
-        db.session.execute(db.text("""
+        cursor.execute("""
             CREATE TABLE _ck_new (
                 id INTEGER PRIMARY KEY,
                 key VARCHAR(64) NOT NULL UNIQUE,
@@ -213,21 +222,26 @@ def _migrate_foreign_keys():
                 used_by INTEGER REFERENCES user(id) ON DELETE SET NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-        """))
-        rows = db.session.execute(db.text("SELECT id, key, credits, used, used_by, created_at FROM credit_key")).fetchall()
+        """)
+        cursor.execute("SELECT id, key, credits, used, used_by, created_at FROM credit_key")
+        rows = cursor.fetchall()
+        # M05: 使用 HMAC-SHA256 加盐（与 CreditKey.hash_key 一致）
+        import hmac as _hmac
+        from flask import current_app
+        _pepper = current_app.config.get('SECRET_KEY', '')
         for row in rows:
             key_plain = row[1] or ""
-            key_hash = _hl.sha256(key_plain.encode()).hexdigest()
+            key_hash = _hmac.new(_pepper.encode(), key_plain.encode(), _hl.sha256).hexdigest()
             key_preview = key_plain[-4:]
-            db.session.execute(db.text(
-                "INSERT INTO _ck_new (id, key, key_preview, credits, used, used_by, created_at) "
-                "VALUES (:id, :kh, :kp, :c, :u, :ub, :ca)"
-            ), {"id": row[0], "kh": key_hash, "kp": key_preview, "c": row[2], "u": row[3], "ub": row[4], "ca": row[5]})
-        db.session.execute(db.text("DROP TABLE credit_key"))
-        db.session.execute(db.text("ALTER TABLE _ck_new RENAME TO credit_key"))
-        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_credit_key_key ON credit_key(key)"))
+            cursor.execute(
+                "INSERT INTO _ck_new (id, key, key_preview, credits, used, used_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (row[0], key_hash, key_preview, row[2], row[3], row[4], row[5])
+            )
+        cursor.execute("DROP TABLE credit_key")
+        cursor.execute("ALTER TABLE _ck_new RENAME TO credit_key")
+        cursor.execute("CREATE INDEX IF NOT EXISTS ix_credit_key_key ON credit_key(key)")
 
-        db.session.execute(db.text("""
+        cursor.execute("""
             CREATE TABLE _wr_new (
                 id INTEGER PRIMARY KEY,
                 world_id VARCHAR(100) NOT NULL REFERENCES world_book(id) ON DELETE CASCADE,
@@ -239,12 +253,12 @@ def _migrate_foreign_keys():
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (world_id, user_id)
             )
-        """))
-        db.session.execute(db.text("INSERT INTO _wr_new (id, world_id, user_id, username, rating, review, created_at, updated_at) SELECT id, world_id, user_id, username, rating, review, created_at, updated_at FROM world_rating"))
-        db.session.execute(db.text("DROP TABLE world_rating"))
-        db.session.execute(db.text("ALTER TABLE _wr_new RENAME TO world_rating"))
+        """)
+        cursor.execute("INSERT INTO _wr_new (id, world_id, user_id, username, rating, review, created_at, updated_at) SELECT id, world_id, user_id, username, rating, review, created_at, updated_at FROM world_rating")
+        cursor.execute("DROP TABLE world_rating")
+        cursor.execute("ALTER TABLE _wr_new RENAME TO world_rating")
 
-        db.session.execute(db.text("""
+        cursor.execute("""
             CREATE TABLE _ws_new (
                 id VARCHAR(100) PRIMARY KEY,
                 name VARCHAR(200) NOT NULL,
@@ -259,13 +273,13 @@ def _migrate_foreign_keys():
                 status VARCHAR(20) DEFAULT 'pending',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-        """))
-        db.session.execute(db.text("INSERT INTO _ws_new (id, name, emoji, genre, desc, system_prompt, temperature, max_tokens, submitted_by, submitter, status, created_at) SELECT id, name, emoji, genre, desc, system_prompt, temperature, max_tokens, submitted_by, submitter, status, created_at FROM world_submission"))
-        db.session.execute(db.text("DROP TABLE world_submission"))
-        db.session.execute(db.text("ALTER TABLE _ws_new RENAME TO world_submission"))
-        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_world_submission_status ON world_submission(status)"))
+        """)
+        cursor.execute("INSERT INTO _ws_new (id, name, emoji, genre, desc, system_prompt, temperature, max_tokens, submitted_by, submitter, status, created_at) SELECT id, name, emoji, genre, desc, system_prompt, temperature, max_tokens, submitted_by, submitter, status, created_at FROM world_submission")
+        cursor.execute("DROP TABLE world_submission")
+        cursor.execute("ALTER TABLE _ws_new RENAME TO world_submission")
+        cursor.execute("CREATE INDEX IF NOT EXISTS ix_world_submission_status ON world_submission(status)")
 
-        db.session.execute(db.text("""
+        cursor.execute("""
             CREATE TABLE _ul_new (
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES user(id) ON DELETE CASCADE,
@@ -276,29 +290,31 @@ def _migrate_foreign_keys():
                 endpoint VARCHAR(50) DEFAULT 'chat',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
-        """))
-        db.session.execute(db.text("INSERT INTO _ul_new (id, user_id, username, model, tokens, cost, endpoint, created_at) SELECT id, user_id, username, model, tokens, cost, endpoint, created_at FROM usage_log"))
-        db.session.execute(db.text("DROP TABLE usage_log"))
-        db.session.execute(db.text("ALTER TABLE _ul_new RENAME TO usage_log"))
-        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_usage_log_user_id ON usage_log(user_id)"))
-        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS ix_usage_log_created_at ON usage_log(created_at)"))
-        db.session.execute(db.text("CREATE INDEX IF NOT EXISTS idx_usage_user_created ON usage_log(user_id, created_at)"))
+        """)
+        cursor.execute("INSERT INTO _ul_new (id, user_id, username, model, tokens, cost, endpoint, created_at) SELECT id, user_id, username, model, tokens, cost, endpoint, created_at FROM usage_log")
+        cursor.execute("DROP TABLE usage_log")
+        cursor.execute("ALTER TABLE _ul_new RENAME TO usage_log")
+        cursor.execute("CREATE INDEX IF NOT EXISTS ix_usage_log_user_id ON usage_log(user_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS ix_usage_log_created_at ON usage_log(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_user_created ON usage_log(user_id, created_at)")
 
-        db.session.execute(db.text("PRAGMA foreign_keys=ON"))
+        raw_conn.commit()
+        cursor.execute("PRAGMA foreign_keys=ON")
 
-        try:
-            row = db.session.execute(db.text("SELECT value FROM api_config WHERE key_name = 'schema_version'")).scalar()
-            if not row:
-                db.session.execute(db.text("INSERT OR IGNORE INTO api_config (key_name, value, priority) VALUES ('schema_version', '2', 0)"))
-            else:
-                db.session.execute(db.text("UPDATE api_config SET value = '2' WHERE key_name = 'schema_version'"))
-        except Exception:
-            pass
-        db.session.commit()
+        cursor.execute("SELECT value FROM api_config WHERE key_name = 'schema_version'")
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute("INSERT OR IGNORE INTO api_config (key_name, value, priority) VALUES ('schema_version', '2', 0)")
+        else:
+            cursor.execute("UPDATE api_config SET value = '2' WHERE key_name = 'schema_version'")
+        raw_conn.commit()
         logger.info("N09+N08: 外键约束和卡密哈希迁移完成")
     except Exception as e:
-        db.session.rollback()
+        raw_conn.rollback()
         logger.warning(f"N09+N08迁移失败（可能已迁移）: {e}")
+    finally:
+        raw_conn.close()
+        db.session.remove()  # 让 session 重新连接，获取新的表结构
 
 
 def init_db():
@@ -377,7 +393,7 @@ def create_app():
 
     # ===== Secret key 处理（保持与原逻辑一致）=====
     _secret_key = os.getenv("SECRET_KEY", "")
-    if not _secret_key or _secret_key == "GENERATE_RANDOM_KEY_IN_PRODUCTION" or _secret_key == "tavern-secret-key-change-in-production":
+    if not _secret_key:  # L09: 环境变量未设置时从 .secret_key 文件加载
         _key_file = os.path.join(BASE_PATH, '.secret_key')
         try:
             with open(_key_file, 'r') as f:
@@ -417,6 +433,8 @@ def create_app():
         def _set_sqlite_pragma(dbapi_conn, connection_record):
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA journal_mode=WAL")  # M04: WAL模式允许并发读+单写，避免database is locked
+            cursor.execute("PRAGMA busy_timeout=30000")  # M04: 锁等待30秒，而非立即报错
             cursor.close()
 
     if not HAS_CRYPTO:
@@ -439,6 +457,9 @@ def create_app():
     # ===== 全局钩子 =====
     @app.before_request
     def protect_db_and_csrf():
+        # M03: 根据请求协议动态设置 SESSION_COOKIE_SECURE（HTTP 下 False，HTTPS 下 True）
+        app.config['SESSION_COOKIE_SECURE'] = request.is_secure or request.headers.get('X-Forwarded-Proto', '') == 'https'
+
         # SEC-02: Block direct database file access
         if request.path.rstrip("/").endswith(".db"):
             return jsonify({"error": "Access denied"}), 403
@@ -468,7 +489,7 @@ def create_app():
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         response.headers['Content-Security-Policy'] = (
             "default-src 'self'; "
-            "script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
+            "script-src 'self' cdn.jsdelivr.net cdnjs.cloudflare.com; "
             "style-src 'self' 'unsafe-inline' cdnjs.cloudflare.com; "
             "img-src 'self' data:; "
             "connect-src 'self'; "
@@ -516,7 +537,7 @@ def create_app():
 # ============================================================
 # 区块 22 · 启动入口
 # ============================================================
-# [AUDIT-P12] 使用 Flask 内置 dev server 生产部署，建议 gunicorn/waitress
+# [AUDIT-P12] M02: 优先使用 Waitress 生产 WSGI 服务器，未安装时回退 Flask dev server 并警告
 def main():
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
@@ -546,7 +567,14 @@ def main():
     host = os.getenv("HOST", "127.0.0.1")
     print(f"[URL]  http://{host}:9000")
     port = int(os.getenv("PORT", "9000"))
-    app.run(debug=False, host=host, port=port)
+    # M02: 优先使用 Waitress 生产服务器
+    try:
+        from waitress import serve
+        print(f"[SERVER] Waitress 生产服务器启动 (threads=8)")
+        serve(app, host=host, port=port, threads=8)
+    except ImportError:
+        print(f"[WARN] Waitress 未安装，回退 Flask 开发服务器（不建议生产环境。pip install waitress 以启用生产服务器）")
+        app.run(debug=False, host=host, port=port)
 
 
 if __name__ == "__main__":

@@ -511,7 +511,8 @@ body {
     transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 0;
 }
-.mode-tab:last-child.active ~ .mode-tab-indicator {
+/* 用 :last-of-type 匹配最后一个 .mode-tab button（indicator div 才是 :last-child，导致旧选择器永不命中） */
+.mode-tab:last-of-type.active ~ .mode-tab-indicator {
     transform: translateX(100%);
 }
 
@@ -924,12 +925,20 @@ body {
     display: flex;
     gap: 12px;
     padding: 14px 18px;
+    padding-left: 24px;
+    padding-right: 24px;
     overflow-x: auto;
     scrollbar-width: none;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    -ms-overflow-style: -ms-autohiding-scrollbar;
     border-bottom: 1px solid var(--border);
     background: linear-gradient(180deg, rgba(42,32,24,0.9), transparent);
+    background: linear-gradient(90deg, rgba(42,32,24,0.95) 0%, rgba(42,32,24,0.9) 5%, rgba(42,32,24,0.9) 95%, rgba(42,32,24,0.95) 100%);
     transition: opacity 0.2s ease;
+    cursor: grab;
 }
+.agent-card-selector:active { cursor: grabbing; }
 .agent-card-selector::-webkit-scrollbar { display: none; }
 .agent-card {
     flex-shrink: 0;
