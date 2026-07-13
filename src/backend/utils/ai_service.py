@@ -3,7 +3,7 @@
 # ============================================================
 import os
 import re
-import random
+import secrets
 import logging
 import requests
 from flask_login import current_user
@@ -181,6 +181,10 @@ def call_ai(messages, model="mimo-v2.5-free", temperature=0.85, max_tokens=1200)
 
 def parse_rpg_reply(text):
     text = text.strip()
+    if not text:
+        return "", {}
+    # Strip angle brackets used by some legacy world prompts to wrap the status line
+    text = text.replace('\u300c', '').replace('\u300d', '')
     marker_re = r'【([^】]+)】'
     matches = list(re.finditer(marker_re, text))
     if not matches:
@@ -192,7 +196,7 @@ def parse_rpg_reply(text):
         key = m.group(1).strip()
         start = m.end()
         end = matches[i+1].start() if i+1 < len(matches) else len(text)
-        val = text[start:end].strip().rstrip(',')
+        val = text[start:end].strip().rstrip(',;')
 
         if re.match(r'^\d+$', key):
             story += f"\n【{key}】{val}"
@@ -203,7 +207,7 @@ def parse_rpg_reply(text):
 
 def roll_d20(modifier=0):
     """Roll a d20 with modifier, return (roll, total)"""
-    roll = random.randint(1, 20)
+    roll = secrets.randbelow(20) + 1
     total = roll + modifier
     return roll, total
 
@@ -283,16 +287,20 @@ def _resolve_judgment(judgment_text, sections=None):
 
 
 def _parse_relationships(rels_str):
+    if not rels_str:
+        return {}
+    rels_str = rels_str.replace("【", "").replace("】", "").replace("\u300c", "").replace("\u300d", "")
     rmap = {}
-    if rels_str:
-        for part in rels_str.replace("【", "").replace("】", "").split():
-            if ":" in part:
-                k, v = part.split(":", 1)
-                rmap[k.strip()] = v.strip()
-    if not rmap and rels_str:
-        for line in rels_str.replace("\r", "").split("\n"):
-            line = line.strip()
-            if ":" in line and not line.startswith("http"):
-                k, v = line.split(":", 1)
-                rmap[k.strip()] = v.strip()
+    groups = re.split(r'[;；\n]', rels_str)
+    for group in groups:
+        for token in group.replace(',', ' ').split():
+            token = token.strip().rstrip(',;')
+            if not token:
+                continue
+            colon = re.search(r'[：:]\s*', token)
+            if colon:
+                k = token[:colon.start()].strip()
+                v = token[colon.end():].strip()
+                if k:
+                    rmap[k] = v
     return rmap

@@ -12,7 +12,7 @@ import { initWorldUI } from './world-ui.js';
 import { initAdmin } from './admin.js';
 import { initPersonalApi } from './personal-api.js';
 import { initExchange } from './exchange.js';
-import { initThreeBg, setRingsVisible } from './three-bg.js';
+import { initThreeBg, setRingsVisible, transitionMode } from './three-bg.js';
 import { applyWorldCard3D, applyChatBubble3D } from './three-card.js';
 
 async function switchMode(newMode) {
@@ -34,6 +34,8 @@ async function switchMode(newMode) {
 
         chatModeEl.style.opacity = '0';
         rpgModeEl.style.opacity = '0';
+
+        transitionMode(newMode);
 
         await new Promise(resolve => setTimeout(resolve, 300));
 

@@ -4,7 +4,7 @@
 import { state } from './state.js';
 import { $, toast, escapeHtml, showLoading, hideLoading, updateProgress, updateLoadingStatus, updateUserInfo, getSelectedModel, formatTime, setManagedInterval, clearManagedTimer } from './utils.js';
 import { api, apiStream } from './api.js';
-import { renderMarkdown, highlightCode, cleanText, renderStory, renderStatus, parseStatusValue } from './renderer.js';
+import { renderMarkdown, renderStoryMarkdown, highlightCode, cleanText, renderStory, renderStatus, parseStatusValue } from './renderer.js';
 import { applyWorldCard3D } from './three-card.js';
 
 const LOADING_STATES = [
@@ -288,8 +288,12 @@ async function submitRating(worldId) {
 export async function startGame(worldId) {
     if (state._gameStarting) return;
     state._gameStarting = true;
-    let name = prompt('请输入你的角色名：', '旅人') || '旅人';
-    name = name.trim().replace(/[<>"'&]/g, '');
+    const nameInput = prompt('请输入你的角色名：', '旅人');
+    if (nameInput === null) {
+        state._gameStarting = false;
+        return;
+    }
+    let name = nameInput.trim().replace(/[<>"'&]/g, '');
     if (!name) name = '旅人';
     const worldSelectScreen = $('worldSelectScreen');
     const gameScreen = $('gameScreen');
@@ -388,118 +392,128 @@ export async function actGame(choice) {
     const storyText = $('storyText');
     const storyBox = $('storyBox');
 
-    while (retryCount <= MAX_RETRIES) {
-        if (retryCount > 0) {
-            const delay = Math.pow(2, retryCount) * 1000;
-            updateLoadingStatus(`🔄 连接断开，${delay/1000}秒后重试...`);
-            await new Promise(r => setTimeout(r, delay));
-            if (!state.rpgState.sessionId) { hideLoading(); state._rpgRequestActive = false; return; }
-        }
+    try {
+        while (retryCount <= MAX_RETRIES) {
+            if (retryCount > 0) {
+                const delay = Math.pow(2, retryCount) * 1000;
+                updateLoadingStatus(`🔄 连接断开，${delay/1000}秒后重试...`);
+                await new Promise(r => setTimeout(r, delay));
+                if (!state.rpgState.sessionId) return;
+            }
 
-        state.rpgAbortController = new AbortController();
+            state.rpgAbortController = new AbortController();
+            let _sseTimedOut = false;
+            let _sseHealthCheck;
 
-        try {
-            const resp = await apiStream('/api/rpg/act/stream', {
-                method: 'POST',
-                body: JSON.stringify({ session_id: state.rpgState.sessionId, choice, model: getSelectedModel() }),
-                signal: state.rpgAbortController.signal
-            });
-            const reader = resp.body.getReader();
-            const dec = new TextDecoder();
-            let buffer = '', full = '', startTime = Date.now();
-            let updatePending = false;
+            try {
+                const resp = await apiStream('/api/rpg/act/stream', {
+                    method: 'POST',
+                    body: JSON.stringify({ session_id: state.rpgState.sessionId, choice, model: getSelectedModel() }),
+                    signal: state.rpgAbortController.signal
+                });
+                const reader = resp.body.getReader();
+                const dec = new TextDecoder();
+                let buffer = '', full = '', startTime = Date.now();
+                let updatePending = false;
+                _sseHealthCheck = setInterval(() => {
+                    if (_sseTimedOut) return;
+                    _sseTimedOut = true;
+                    clearInterval(_sseHealthCheck);
+                    console.warn('[WARN] SSE health check timed out, aborting');
+                    state.rpgAbortController?.abort();
+                }, 30000);
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += dec.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    let json;
-                    try {
-                        json = JSON.parse(line.slice(6));
-                    } catch (e) {
-                        console.error('[ERROR] Failed to parse SSE chunk:', e);
-                        continue;
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) { clearInterval(_sseHealthCheck); break; }
+                    _sseTimedOut = false;
+                    buffer += dec.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        let json;
+                        try {
+                            json = JSON.parse(line.slice(6));
+                        } catch (e) {
+                            console.error('[ERROR] Failed to parse SSE chunk:', e);
+                            continue;
+                        }
+                        // [AUDIT-P14] full 字符串无界累积（~400KB+ GC 压力）
+                        if (json.type === 'chunk') {
+                            full += json.text;
+                            if (!updatePending) {
+                                updatePending = true;
+                                // [AUDIT-P15] RAF + innerHTML 每次全量渲染，布局抖动
+                                requestAnimationFrame(() => {
+                                    storyText.innerHTML = renderStoryMarkdown(full);
+                                    storyBox.scrollTop = storyBox.scrollHeight;
+                                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                                    const estTotal = Math.max(800, full.length * 2);
+                                    const pct = Math.min(95, full.length / estTotal * 100);
+                                    const speed = elapsed > 0 ? (full.length / parseFloat(elapsed)).toFixed(0) : 0;
+                                    updateProgress(pct, Math.round(pct) + '% · ' + full.length + '字');
+                                    $('loadingSub').textContent = '⏱ ' + elapsed + 's · ' + speed + '字/s';
+                                    updateLoadingStatus('AI 正在生成故事...');
+                                    updatePending = false;
+                                });
+                            }
+                        } else if (json.type === 'done') {
+                            clearInterval(_sseHealthCheck);
+                            updateProgress(100, '100%');
+                            updateLoadingStatus('✓ 故事生成完成，正在渲染...');
+                            state.actGameStatusTimeout = setTimeout(() => updateLoadingStatus(''), 500);
+                            if (json.credits_left !== undefined) {
+                                state.currentUser.credits = json.credits_left;
+                                updateUserInfo();
+                            }
+                            state.rpgState.storyline = json.storyline || state.rpgState.storyline || [];
+                            state.rpgState.sections = json.sections || null;
+                            // [AUDIT-X03] innerHTML 渲染 SSE 流数据，DOMPurify 缺失时 XSS 入口
+                            storyText.innerHTML = renderStoryMarkdown(json.story || full);
+                            renderStatus(json.sections || json.state || '');
+                            renderChoices(json.story || full);
+                            renderStoryline();
+                            renderRelationships(json.relationships);
+                            $('gameRound').textContent = `第${Math.max(1, (state.rpgState.storyline || []).length)}轮`;
+                            hideLoading();
+                            return;
+                        } else if (json.type === 'error') {
+                            clearInterval(_sseHealthCheck);
+                            storyText.textContent = '❌ ' + json.text;
+                            hideLoading();
+                            return;
+                        }
                     }
-                    // [AUDIT-P14] full 字符串无界累积（~400KB+ GC 压力）
-                    if (json.type === 'chunk') {
-                        full += json.text;
-                        if (!updatePending) {
-                            updatePending = true;
-                            // [AUDIT-P15] RAF + innerHTML 每次全量渲染，布局抖动
-                            requestAnimationFrame(() => {
-                                storyText.innerHTML = renderMarkdown(full);
-                                storyBox.scrollTop = storyBox.scrollHeight;
-                                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                                const estTotal = Math.max(800, full.length * 2);
-                                const pct = Math.min(95, full.length / estTotal * 100);
-                                const speed = elapsed > 0 ? (full.length / parseFloat(elapsed)).toFixed(0) : 0;
-                                updateProgress(pct, Math.round(pct) + '% · ' + full.length + '字');
-                                $('loadingSub').textContent = '⏱ ' + elapsed + 's · ' + speed + '字/s';
-                                updateLoadingStatus('AI 正在生成故事...');
-                                updatePending = false;
-                            });
-                        }
-                    } else if (json.type === 'done') {
-                        updateProgress(100, '100%');
-                        updateLoadingStatus('✓ 故事生成完成，正在渲染...');
-                        state.actGameStatusTimeout = setTimeout(() => updateLoadingStatus(''), 500);
-                        if (json.credits_left !== undefined) {
-                            state.currentUser.credits = json.credits_left;
-                            updateUserInfo();
-                        }
-                        state.rpgState.storyline = json.storyline || state.rpgState.storyline || [];
-                        state.rpgState.sections = json.sections || null;
-                        // [AUDIT-X03] innerHTML 渲染 SSE 流数据，DOMPurify 缺失时 XSS 入口
-                        storyText.innerHTML = renderMarkdown(json.story || full);
-                        renderStatus(json.sections || json.state || '');
-                        renderChoices(json.story || full);
-                        renderStoryline();
-                        renderRelationships(json.relationships);
-                        $('gameRound').textContent = `第${Math.max(1, (state.rpgState.storyline || []).length)}轮`;
+                }
+
+                clearInterval(_sseHealthCheck);
+                if (full && !storyText.textContent.startsWith('❌')) {
+                    storyText.innerHTML = renderStoryMarkdown(full);
+                    renderChoices(full);
+                    renderStoryline();
+                }
+                hideLoading();
+                return;
+
+            } catch (e) {
+                if (_sseHealthCheck) clearInterval(_sseHealthCheck);
+                if (e.name === 'AbortError') {
+                    if (_sseTimedOut) {
+                        console.warn('[WARN] actGame SSE timed out, retrying');
+                        _sseTimedOut = false;
+                    } else {
+                        console.info('[INFO] actGame aborted by user');
                         hideLoading();
-                        state.rpgAbortController = null;
-                        state._rpgRequestActive = false;
-                        return;
-                    } else if (json.type === 'error') {
-                        storyText.textContent = '❌ ' + json.text;
-                        hideLoading();
-                        state.rpgAbortController = null;
-                        state._rpgRequestActive = false;
                         return;
                     }
                 }
+                if (!state.rpgState.sessionId) return;
+                retryCount++;
+                console.warn(`[WARN] SSE stream failed, attempt ${retryCount}/${MAX_RETRIES}:`, e);
             }
-
-            if (full && !storyText.textContent.startsWith('❌')) {
-                storyText.innerHTML = renderMarkdown(full);
-                renderChoices(full);
-                renderStoryline();
-            }
-            hideLoading();
-            state.rpgAbortController = null;
-            state._rpgRequestActive = false;
-            return;
-
-        } catch (e) {
-            if (e.name === 'AbortError') {
-                console.info('[INFO] actGame aborted by user');
-                hideLoading();
-                state.rpgAbortController = null;
-                state._rpgRequestActive = false;
-                return;
-            }
-            if (!state.rpgState.sessionId) { hideLoading(); state._rpgRequestActive = false; return; }
-            retryCount++;
-            console.warn(`[WARN] SSE stream failed, attempt ${retryCount}/${MAX_RETRIES}:`, e);
-            state.rpgAbortController = null;
         }
-    }
 
-    try {
         storyText.textContent = '⏳ 流式连接失败，使用普通模式...';
         const data = await api('/api/rpg/act', {
             method: 'POST',
@@ -512,7 +526,7 @@ export async function actGame(choice) {
         if (data.credits_left !== undefined) { state.currentUser.credits = data.credits_left; updateUserInfo(); }
         state.rpgState.storyline = data.storyline || [];
         state.rpgState.sections = data.sections || null;
-        storyText.innerHTML = renderMarkdown(data.story || '');
+        storyText.innerHTML = renderStoryMarkdown(data.story || '');
         renderStatus(data.sections || data.state || '');
         renderChoices(data.story || '');
         renderStoryline();
@@ -782,7 +796,7 @@ function reviewRound(round) {
     const storyText = entry.story || '（无故事记录）';
     const isCurrent = round === (sl.length > 0 ? sl[sl.length - 1].round : -1);
 
-    $('reviewContent').innerHTML = renderMarkdown(storyText);
+    $('reviewContent').innerHTML = renderStoryMarkdown(storyText);
     $('reviewTitle').textContent = `第 ${round} 轮 · ${cleanText((entry.choice || '').slice(0, 50))}${isCurrent ? '（当前）' : ''}`;
     $('reviewModal').style.display = 'flex';
 }
@@ -898,7 +912,7 @@ export async function spectatePoll() {
         $('specPlayerName').textContent = '🧑 ' + d.player_name;
         const rounds = d.storyline ? d.storyline.length : (d.rounds || 0);
         $('specRoundInfo').textContent = '⚡ 第' + (rounds + 1) + '轮 · ' + (state.spectateMode === 'admin' ? '实时监控' : '实时围观');
-        $('specStoryText').innerHTML = renderMarkdown(d.last_story || '');
+        $('specStoryText').innerHTML = renderStoryMarkdown(d.last_story || '');
         $('specStatus').innerHTML = renderSectionsHtml(d.sections);
         if (d.relationship && Object.keys(d.relationship).length) {
             $('specRelsPanel').style.display = '';

@@ -6,6 +6,7 @@ import { $, toast, escapeHtml, updateUserInfo, getSelectedModel } from './utils.
 import { api } from './api.js';
 import { renderMarkdown, highlightCode } from './renderer.js';
 import { applyChatBubble3D } from './three-card.js';
+import { emitMessageParticles } from './three-bg.js';
 
 export async function populateModels() {
     const sel = $('modelSelect');
@@ -193,10 +194,15 @@ export async function switchAgent(newAgentId) {
 async function sendMessage() {
     if (state.isSending) return;
     const messageInput = $('messageInput');
+    if (!messageInput) return;
     const msg = messageInput.value.trim();
     if (!msg) return;
     state.isSending = true;
     const agentSelect = $('agentSelect');
+    if (!agentSelect) {
+        state.isSending = false;
+        return;
+    }
     const agentId = agentSelect.value;
     messageInput.value = '';
     messageInput.style.height = 'auto';
@@ -204,40 +210,76 @@ async function sendMessage() {
     if (panel) panel.style.display = 'none';
     appendMessage(msg, 'user');
     const sendBtn = $('sendBtn');
-    sendBtn.disabled = true;
-    sendBtn.textContent = '⏳ 思考中...';
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.textContent = '⏳ 思考中...';
+    }
+
+    if (sendBtn) {
+        const btnRect = sendBtn.getBoundingClientRect();
+        emitMessageParticles(
+            btnRect.left + btnRect.width / 2,
+            btnRect.top + btnRect.height / 2,
+            'send'
+        );
+    }
+
     const thinkingEl = appendMessage('', 'agent', agentSelect.selectedOptions[0]?.textContent || '');
     const thinkDots = createThinkingIndicator();
-    thinkingEl.querySelector('.md-body').appendChild(thinkDots);
+    const thinkingBody = thinkingEl?.querySelector('.md-body');
+    if (thinkingBody) thinkingBody.appendChild(thinkDots);
+    
+    let authScreenShown = false;
     try {
         const data = await api('/api/chat', {
             method: 'POST',
             body: JSON.stringify({ message: msg, agent_id: agentId, model: getSelectedModel() })
         });
-        thinkDots.remove();
+        if (thinkDots && !thinkDots.isConnected) {
+            authScreenShown = true;
+        }
+        if (thinkDots && thinkDots.isConnected) thinkDots.remove();
+        if (authScreenShown) return;
+        if (!thinkingBody) return;
+        
         if (data.error) {
             if (data.error === '积分不足') {
                 toast('积分不足，请联系管理员充值');
                 thinkingEl.remove();
             } else {
-                thinkingEl.querySelector('.md-body').innerHTML = '❌ ' + escapeHtml(data.error);
+                thinkingBody.innerHTML = '❌ ' + escapeHtml(data.error);
             }
         } else {
-            thinkingEl.querySelector('.md-body').innerHTML = renderMarkdown(data.reply || '（没有回应）');
+            thinkingBody.innerHTML = renderMarkdown(data.reply || '（没有回应）');
+            const bubbleRect = thinkingEl.getBoundingClientRect();
+            emitMessageParticles(
+                bubbleRect.left + bubbleRect.width / 2,
+                bubbleRect.top + bubbleRect.height / 2,
+                'receive'
+            );
             if (data.credits_left !== undefined) {
                 state.currentUser.credits = data.credits_left;
                 updateUserInfo();
             }
         }
     } catch (err) {
-        thinkDots.remove();
-        thinkingEl.querySelector('.md-body').innerHTML = '❌ 网络错误，请重试';
+        if (err.message === '未登录') {
+            authScreenShown = true;
+        } else {
+            if (thinkDots && thinkDots.isConnected) thinkDots.remove();
+            if (thinkingBody) {
+                thinkingBody.innerHTML = '❌ 网络错误，请重试';
+            }
+        }
     } finally {
         state.isSending = false;
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = '<span class="btn-icon">🍺</span> 来一杯';
+        if (authScreenShown) return;
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = '<span class="btn-icon">🍺</span> 来一杯';
+        }
         const chatBox = $('chatBox');
-        chatBox.scrollTop = chatBox.scrollHeight;
+        if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
     }
 }
 

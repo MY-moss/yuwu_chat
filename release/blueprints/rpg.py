@@ -648,7 +648,9 @@ def rpg_act_stream():
 
     def generate():
         import json as _json
+        import time as _time
         total_tokens = 0
+        _last_yield = _time.time()
 
         def refund_full():
             if not personal and credits_per_1k > 0:
@@ -658,23 +660,37 @@ def rpg_act_stream():
                 )
                 db.session.commit()
 
+        def _yield_with_keepalive(data):
+            nonlocal _last_yield
+            now = _time.time()
+            while now - _last_yield > 15:
+                yield ": keepalive\n\n"
+                _last_yield = _time.time()
+                now = _time.time()
+            yield data
+            _last_yield = _time.time()
+
         if not api_key:
             refund_full()
             mock_text = "【状态】\n生命值:100/100\n法力值:50/50\n\n（AI 暂未配置，请管理员在面板中配置 API 密钥）"
             for ch in mock_text:
-                yield f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"
-            yield f"data: {_json.dumps({'type':'done'})}\n\n"
+                for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"):
+                    yield part
+            for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'done'})}\n\n"):
+                yield part
             return
         if not api_url:
             refund_full()
             logger.error("rpg_act_stream API URL is empty")
-            yield f"data: {_json.dumps({'type':'error','text':'API地址配置不完整'})}\n\n"
+            for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'error','text':'API地址配置不完整'})}\n\n"):
+                yield part
             return
         safe, reason = is_safe_url(api_url)
         if not safe:
             refund_full()
             logger.error(sanitize_log(f"rpg_act_stream API URL unsafe: {reason}"))
-            yield f"data: {_json.dumps({'type':'error','text':'API地址配置不安全'})}\n\n"
+            for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'error','text':'API地址配置不安全'})}\n\n"):
+                yield part
             return
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         temp_history = sess["history"].copy()
@@ -697,8 +713,9 @@ def rpg_act_stream():
                             choices = data.get("choices", [])
                             full_text = choices[0].get("message", {}).get("content", "") if choices else ""
                             for ch in full_text:
-                                yield f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"
-                            import time; time.sleep(0.02)
+                                for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'chunk','text':ch})}\n\n"):
+                                    yield part
+                            _time.sleep(0.02)
                 elif resp.status_code != 200:
                     try:
                         err_body = resp.text[:500]
@@ -707,7 +724,8 @@ def rpg_act_stream():
                         err_body = ""
                         logger.error(sanitize_log(f"rpg_act_stream API {resp.status_code}: {e}"))
                     refund_full()
-                    yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
+                    for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"):
+                        yield part
                     return
                 else:
                     it = resp.iter_lines()
@@ -733,13 +751,15 @@ def rpg_act_stream():
                                     delta = choices[0].get("delta", {}).get("content", "") if choices else ""
                                     if delta:
                                         full_text += delta
-                                        yield f"data: {_json.dumps({'type':'chunk','text':delta})}\n\n"
+                                        for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'chunk','text':delta})}\n\n"):
+                                            yield part
                                 except Exception:
                                     pass
         except Exception as e:
             logger.error(f"rpg_act_stream: {e}")
             refund_full()
-            yield f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"
+            for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'error','text':'AI服务暂时不可用，请稍后重试'})}\n\n"):
+                yield part
             return
 
         story, sections = parse_rpg_reply(full_text)
@@ -786,7 +806,8 @@ def rpg_act_stream():
         db_user = User.query.get(user_id)
         final_credits = db_user.credits if db_user else user_credits
 
-        yield f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':actual_cost,'credits_left':final_credits,'free':personal})}\n\n"
+        for part in _yield_with_keepalive(f"data: {_json.dumps({'type':'done','story':story,'state':state_str,'relationships':rmap,'sections':sections,'tokens_used':total_tokens,'cost':actual_cost,'credits_left':final_credits,'free':personal})}\n\n"):
+            yield part
 
     response = Response(stream_with_context(generate()), mimetype="text/event-stream")
     return response
@@ -958,9 +979,7 @@ def roll_dice():
         if sess.get("user_id") != current_user.id:
             return jsonify({"error": "无权操作"}), 403
 
-    import random
-    # [AUDIT-H08] 骰子使用 random 而非 secrets，可预测。改用 secrets.randbelow(20)+1
-    roll = random.randint(1, 20)
+    roll = secrets.randbelow(20) + 1
     total = roll + modifier
     success = total >= difficulty
 

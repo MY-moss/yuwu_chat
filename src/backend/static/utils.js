@@ -84,6 +84,15 @@ export function updateLoadingStatus(text) {
 }
 
 export function showAuthScreen() {
+    state.isSending = false;
+    state.isSwitchingMode = false;
+    state.isSwitchingAgent = false;
+    state._rpgRequestActive = false;
+    state._gameStarting = false;
+    if (state.rpgAbortController) {
+        state.rpgAbortController.abort();
+        state.rpgAbortController = null;
+    }
     const authScreen = $('authScreen');
     const mainScreen = $('mainScreen');
     if (authScreen) authScreen.style.display = 'flex';

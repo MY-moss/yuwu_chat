@@ -288,8 +288,12 @@ async function submitRating(worldId) {
 export async function startGame(worldId) {
     if (state._gameStarting) return;
     state._gameStarting = true;
-    let name = prompt('请输入你的角色名：', '旅人') || '旅人';
-    name = name.trim().replace(/[<>"'&]/g, '');
+    const nameInput = prompt('请输入你的角色名：', '旅人');
+    if (nameInput === null) {
+        state._gameStarting = false;
+        return;
+    }
+    let name = nameInput.trim().replace(/[<>"'&]/g, '');
     if (!name) name = '旅人';
     const worldSelectScreen = $('worldSelectScreen');
     const gameScreen = $('gameScreen');

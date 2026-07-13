@@ -457,8 +457,6 @@ def create_app():
     # ===== 全局钩子 =====
     @app.before_request
     def protect_db_and_csrf():
-        # M03: 根据请求协议动态设置 SESSION_COOKIE_SECURE（HTTP 下 False，HTTPS 下 True）
-        app.config['SESSION_COOKIE_SECURE'] = request.is_secure or request.headers.get('X-Forwarded-Proto', '') == 'https'
 
         # SEC-02: Block direct database file access
         if request.path.rstrip("/").endswith(".db"):

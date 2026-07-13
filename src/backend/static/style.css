@@ -1334,7 +1334,6 @@ body {
     color: var(--text);
     letter-spacing: 0.5px;
     text-align: justify;
-    text-indent: 2em;
 }
 .story-text p {
     margin-bottom: 16px;
@@ -3030,11 +3029,17 @@ body {
 }
 .story-text .md-body p {
     margin: 0.7em 0;
+    text-indent: 2em;
+}
+.story-text .md-body p:first-child {
     text-indent: 0;
 }
 .story-text .md-body h1,
 .story-text .md-body h2,
-.story-text .md-body h3 {
+.story-text .md-body h3,
+.story-text .md-body h4,
+.story-text .md-body h5,
+.story-text .md-body h6 {
     text-align: center;
     margin-top: 1.5em;
 }

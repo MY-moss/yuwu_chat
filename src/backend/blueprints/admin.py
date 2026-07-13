@@ -147,13 +147,23 @@ def admin_update_user(user_id):
         return jsonify({"error": "用户不存在"}), 404
 
     data = request.json
+    if "username" in data:
+        new_username = sanitize_input(data["username"]).strip()
+        if not new_username:
+            return jsonify({"error": "用户名不能为空"}), 400
+        if len(new_username) < 2 or len(new_username) > 32:
+            return jsonify({"error": "用户名长度必须在2-32字符之间"}), 400
+        if User.query.filter(User.username == new_username, User.id != user_id).first():
+            return jsonify({"error": "该用户名已被使用"}), 400
+        old_username = user.username
+        user.username = new_username
+        Feedback.query.filter_by(user_id=user_id).update({"username": new_username})
     if "credits" in data:
         try:
             credits = int(data["credits"])
             if credits < 0 or credits > 999999:
                 return jsonify({"error": "积分值无效（0-999999）"}), 400
             user.credits = credits
-            user.token_version = (user.token_version or 1) + 1
         except (ValueError, TypeError):
             return jsonify({"error": "积分值必须为整数"}), 400
     if "role" in data:
@@ -212,13 +222,16 @@ def admin_delete_user(user_id):
 @login_required
 @admin_required
 def admin_stats():
-    # [AUDIT-H02] admin_stats 无分页/过滤/时间范围，全表聚合性能差
+    days = request.args.get('days', 30, type=int)
+    days = max(1, min(days, 365))
+    cutoff_time = datetime.now() - timedelta(days=days)
     from sqlalchemy import func
+    base_query = UsageLog.query.filter(UsageLog.created_at >= cutoff_time)
     stats = db.session.query(
         func.count(UsageLog.id).label('total_calls'),
         func.coalesce(func.sum(UsageLog.tokens), 0).label('total_tokens'),
         func.coalesce(func.sum(UsageLog.cost), 0).label('total_cost')
-    ).first()
+    ).filter(UsageLog.created_at >= cutoff_time).first()
     total_calls = stats.total_calls or 0
     total_tokens = stats.total_tokens or 0
     total_cost = float(stats.total_cost or 0)
@@ -226,12 +239,12 @@ def admin_stats():
         UsageLog.username, func.count(UsageLog.id).label('calls'),
         func.coalesce(func.sum(UsageLog.tokens), 0).label('tokens'),
         func.coalesce(func.sum(UsageLog.cost), 0).label('cost')
-    ).group_by(UsageLog.username).all()
+    ).filter(UsageLog.created_at >= cutoff_time).group_by(UsageLog.username).all()
     users = {u.username: {"calls": u.calls, "tokens": u.tokens, "cost": float(u.cost)} for u in user_stats}
     model_stats = db.session.query(
         UsageLog.model, func.count(UsageLog.id).label('calls'),
         func.coalesce(func.sum(UsageLog.tokens), 0).label('tokens')
-    ).group_by(UsageLog.model).all()
+    ).filter(UsageLog.created_at >= cutoff_time).group_by(UsageLog.model).all()
     models = {m.model: {"calls": m.calls, "tokens": m.tokens} for m in model_stats}
     with _sessions_lock:
         active_sessions = len(rpg_sessions)

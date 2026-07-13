@@ -309,9 +309,16 @@ export function initAdmin() {
         loadAdminUsers();
         loadAdminKeys();
     });
-    adminClose?.addEventListener('click', () => adminModal.classList.remove('show'));
-    adminCancel?.addEventListener('click', () => adminModal.classList.remove('show'));
-    adminModal?.addEventListener('click', e => { if (e.target === adminModal) adminModal.classList.remove('show'); });
+    function closeAdminModal() {
+        adminModal.classList.remove('show');
+        if (state.adminStatsTimer) {
+            clearManagedTimer(state.adminStatsTimer);
+            state.adminStatsTimer = null;
+        }
+    }
+    adminClose?.addEventListener('click', closeAdminModal);
+    adminCancel?.addEventListener('click', closeAdminModal);
+    adminModal?.addEventListener('click', e => { if (e.target === adminModal) closeAdminModal(); });
 
     document.querySelectorAll('.admin-tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -323,7 +330,21 @@ export function initAdmin() {
             $('adminCreditKeysPanel').style.display = panel === 'creditkeys' ? 'block' : 'none';
             $('adminStatsPanel').style.display = panel === 'stats' ? 'block' : 'none';
             $('adminSubmissionsPanel').style.display = panel === 'submissions' ? 'block' : 'none';
-            if (panel === 'stats') { loadAdminStats(); loadAdminAllSessions(); }
+            if (panel === 'stats') {
+                loadAdminStats();
+                loadAdminAllSessions();
+                if (!state.adminStatsTimer) {
+                    state.adminStatsTimer = setManagedInterval(() => {
+                        loadAdminStats();
+                        loadAdminAllSessions();
+                    }, 5000);
+                }
+            } else {
+                if (state.adminStatsTimer) {
+                    clearManagedTimer(state.adminStatsTimer);
+                    state.adminStatsTimer = null;
+                }
+            }
             if (panel === 'submissions') loadAdminSubmissions();
         });
     });

@@ -1,5 +1,5 @@
 // ============================================================
-// 文件: three-bg.js | 职责: Three.js 3D效果（粒子背景+登录装饰环）
+// 文件: three-bg.js | 职责: Three.js 3D效果（粒子背景+登录装饰环+模式过渡+消息粒子）
 // ============================================================
 import { THREE_CONFIG, getAdaptiveParticleCount, isWebGLSupported } from './three-config.js';
 
@@ -11,6 +11,16 @@ let _rings = [];
 let _animationId = null;
 let _lastFrameTime = 0;
 let _isActive = false;
+let _THREE = null;
+
+// 模式过渡状态
+let _modeTransition = null;
+
+// 消息粒子爆发系统
+let _burstSystems = [];
+
+// 移动端检测
+const _isMobile = window.matchMedia('(max-width: 768px)').matches;
 
 /**
  * 动态导入 Three.js（通过 CDN URL，CSP 兼容）
@@ -112,6 +122,32 @@ function animate(timestamp) {
     }
     _lastFrameTime = timestamp;
 
+    // 方案4: 模式切换过渡 — 相机穿越粒子层
+    if (_modeTransition && _camera) {
+        const elapsed = timestamp - _modeTransition.startTime;
+        const t = Math.min(elapsed / _modeTransition.duration, 1);
+        const { startZ, peakZ } = _modeTransition;
+
+        if (t < 0.5) {
+            const p = _easeInOutCubic(t * 2);
+            _camera.position.z = startZ + (peakZ - startZ) * p;
+        } else {
+            const p = _easeInOutCubic((t - 0.5) * 2);
+            _camera.position.z = peakZ + (startZ - peakZ) * p;
+        }
+
+        if (t >= 1) {
+            const velocities = _particles?.userData?.velocities;
+            if (velocities && _modeTransition.origSpeeds) {
+                for (let i = 0; i < velocities.length; i++) {
+                    velocities[i] = _modeTransition.origSpeeds[i];
+                }
+            }
+            _camera.position.z = startZ;
+            _modeTransition = null;
+        }
+    }
+
     if (_particles) {
         const positions = _particles.geometry.attributes.position.array;
         const { velocities, opacities, opacityDeltas } = _particles.userData;
@@ -146,8 +182,15 @@ function animate(timestamp) {
         ring.rotation.z += rotSpeed.z;
     });
 
+    // 方案6: 消息粒子特效更新
+    _updateBurstSystems(timestamp);
+
     _renderer.render(_scene, _camera);
     _animationId = requestAnimationFrame(animate);
+}
+
+function _easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 /**
@@ -176,6 +219,7 @@ export async function initThreeBg() {
 
     try {
         const THREE = await loadThree();
+        _THREE = THREE;
 
         const canvas = document.getElementById(THREE_CONFIG.PARTICLE_BG.canvasId);
         if (!canvas) {
@@ -237,12 +281,16 @@ export function destroyThreeBg() {
     });
     _rings = [];
 
+    _clearBurstSystems();
+
     if (_renderer) {
         _renderer.dispose();
         _renderer = null;
     }
     _scene = null;
     _camera = null;
+    _THREE = null;
+    _modeTransition = null;
 }
 
 /**
@@ -253,6 +301,195 @@ export function setRingsVisible(visible) {
     _rings.forEach(ring => {
         ring.visible = visible;
     });
+}
+
+// ============================================================
+// 方案4: 模式切换 3D 过渡动画（相机穿越粒子层）
+// ============================================================
+
+/**
+ * 触发模式切换 3D 过渡动画
+ * 相机沿 Z 轴推进穿过粒子层，再回退到原位，配合粒子加速产生穿越感
+ * @param {string} _toMode - 目标模式（'chat' | 'rpg'），预留用于差异化效果
+ */
+export function transitionMode(_toMode) {
+    const cfg = THREE_CONFIG.MODE_TRANSITION;
+    if (!cfg.enabled || !_camera || !_particles || !_THREE) return;
+    if (_isMobile) return;
+
+    if (_modeTransition) {
+        const vels = _particles.userData.velocities;
+        for (let i = 0; i < vels.length; i++) {
+            vels[i] = _modeTransition.origSpeeds[i];
+        }
+    }
+
+    const startZ = THREE_CONFIG.PARTICLE_BG.cameraZ;
+    const peakZ = startZ + cfg.cameraPushZ;
+
+    const velocities = _particles.userData.velocities;
+    const origSpeeds = new Float32Array(velocities.length);
+    for (let i = 0; i < velocities.length; i++) {
+        origSpeeds[i] = velocities[i];
+        velocities[i] *= cfg.particleSpeedBoost;
+    }
+
+    _modeTransition = {
+        startTime: performance.now(),
+        duration: cfg.duration,
+        startZ,
+        peakZ,
+        origSpeeds
+    };
+}
+
+// ============================================================
+// 方案6: 发送/接收消息粒子特效
+// ============================================================
+
+/**
+ * 将屏幕坐标转换为 3D 世界坐标
+ */
+function _screenToWorld(screenX, screenY) {
+    if (!_camera || !_THREE) return null;
+    const ndcX = (screenX / window.innerWidth) * 2 - 1;
+    const ndcY = -(screenY / window.innerHeight) * 2 + 1;
+    const vec = new _THREE.Vector3(ndcX, ndcY, 0.5);
+    vec.unproject(_camera);
+    return vec;
+}
+
+/**
+ * 触发消息粒子特效
+ * @param {number} screenX - 屏幕X坐标（像素）
+ * @param {number} screenY - 屏幕Y坐标（像素）
+ * @param {'send'|'receive'} type - 发送或接收
+ */
+export function emitMessageParticles(screenX, screenY, type = 'send') {
+    const cfg = THREE_CONFIG.MESSAGE_PARTICLES;
+    if (!cfg.enabled || !_scene || !_camera || !_THREE || !_renderer) return;
+
+    const worldPos = _screenToWorld(screenX, screenY);
+    if (!worldPos) return;
+
+    const THREE = _THREE;
+    const count = type === 'send' ? cfg.sendCount : cfg.receiveCount;
+    const color = type === 'send' ? cfg.sendColor : cfg.receiveColor;
+
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 3);
+
+    for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        if (type === 'send') {
+            positions[i3] = worldPos.x;
+            positions[i3 + 1] = worldPos.y;
+            positions[i3 + 2] = worldPos.z;
+            const angle = Math.random() * Math.PI * 2;
+            const elevation = (Math.random() - 0.5) * Math.PI;
+            const speed = 0.1 + Math.random() * 0.2;
+            velocities[i3] = Math.cos(angle) * Math.cos(elevation) * speed;
+            velocities[i3 + 1] = Math.sin(elevation) * speed + 0.05;
+            velocities[i3 + 2] = Math.sin(angle) * Math.cos(elevation) * speed;
+        } else {
+            const angle = Math.random() * Math.PI * 2;
+            const radius = cfg.spreadRadius * (0.5 + Math.random() * 0.5);
+            positions[i3] = worldPos.x + Math.cos(angle) * radius;
+            positions[i3 + 1] = worldPos.y + Math.sin(angle) * radius;
+            positions[i3 + 2] = worldPos.z + (Math.random() - 0.5) * radius;
+            const frames = cfg.duration / 16;
+            velocities[i3] = (worldPos.x - positions[i3]) / frames;
+            velocities[i3 + 1] = (worldPos.y - positions[i3 + 1]) / frames;
+            velocities[i3 + 2] = (worldPos.z - positions[i3 + 2]) / frames;
+        }
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const material = new THREE.PointsMaterial({
+        size: cfg.particleSize,
+        sizeAttenuation: true,
+        color: color,
+        transparent: true,
+        opacity: 1,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    });
+
+    const points = new THREE.Points(geometry, material);
+    _scene.add(points);
+
+    _burstSystems.push({
+        points,
+        geometry,
+        material,
+        velocities,
+        startTime: performance.now(),
+        duration: cfg.duration,
+        type
+    });
+}
+
+/**
+ * 在主动画循环中更新所有爆发粒子系统
+ */
+function _updateBurstSystems(now) {
+    if (_burstSystems.length === 0) return;
+
+    for (let i = _burstSystems.length - 1; i >= 0; i--) {
+        const burst = _burstSystems[i];
+        const elapsed = now - burst.startTime;
+        const t = elapsed / burst.duration;
+
+        if (t >= 1) {
+            _scene.remove(burst.points);
+            burst.geometry.dispose();
+            burst.material.dispose();
+            _burstSystems.splice(i, 1);
+            continue;
+        }
+
+        const positions = burst.geometry.attributes.position.array;
+        const vels = burst.velocities;
+        const count = positions.length / 3;
+
+        for (let j = 0; j < count; j++) {
+            const j3 = j * 3;
+            positions[j3] += vels[j3];
+            positions[j3 + 1] += vels[j3 + 1];
+            positions[j3 + 2] += vels[j3 + 2];
+
+            if (burst.type === 'send') {
+                vels[j3] *= 0.97;
+                vels[j3 + 1] *= 0.97;
+                vels[j3 + 2] *= 0.97;
+            } else if (t > 0.8) {
+                vels[j3] *= 0.85;
+                vels[j3 + 1] *= 0.85;
+                vels[j3 + 2] *= 0.85;
+            }
+        }
+        burst.geometry.attributes.position.needsUpdate = true;
+
+        if (burst.type === 'send') {
+            burst.material.opacity = 1 - t * t;
+        } else {
+            burst.material.opacity = t < 0.3 ? t / 0.3 : 1 - (t - 0.3) / 0.7;
+        }
+    }
+}
+
+/**
+ * 清理所有爆发粒子系统
+ */
+function _clearBurstSystems() {
+    _burstSystems.forEach(burst => {
+        if (_scene) _scene.remove(burst.points);
+        burst.geometry.dispose();
+        burst.material.dispose();
+    });
+    _burstSystems = [];
 }
 
 // ===== END OF FILE =====

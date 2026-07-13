@@ -38,41 +38,79 @@ async function _handleCsrfFailure(url, opts) {
     return api(url, opts);
 }
 
+let _authRefreshInProgress = false;
+
+async function _tryRefreshAuth() {
+    if (_authRefreshInProgress) {
+        await new Promise(r => setTimeout(r, 200));
+        return !!state.currentUser;
+    }
+    _authRefreshInProgress = true;
+    try {
+        await fetchCsrfToken();
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (res.ok) {
+            const data = await res.json();
+            state.currentUser = data;
+            return true;
+        }
+    } catch (e) {
+        console.debug('[DEBUG] _tryRefreshAuth failed:', e);
+    } finally {
+        _authRefreshInProgress = false;
+    }
+    return false;
+}
+
 export async function api(url, opts = {}) {
     const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
     if (state.csrfToken) {
         headers['X-CSRF-Token'] = state.csrfToken;
     }
-    const res = await fetch(url, {
-        ...opts,
-        headers,
-        credentials: 'include'
-    });
-    let data;
     try {
-        data = await res.json();
-    } catch (e) {
-        console.error('[ERROR] api() failed to parse JSON:', e);
-        if (res.status === 401 || res.status === 302) {
+        const res = await fetch(url, {
+            ...opts,
+            headers,
+            credentials: 'include'
+        });
+        let data;
+        try {
+            data = await res.json();
+        } catch (e) {
+            console.error('[ERROR] api() failed to parse JSON:', e);
+            if (res.status === 401 || res.status === 302) {
+                if (state.currentUser && await _tryRefreshAuth()) {
+                    return api(url, opts);
+                }
+                state.currentUser = null;
+                showAuthScreen();
+                throw new Error('未登录');
+            }
+            if (res.status === 403) {
+                return _handleCsrfFailure(url, opts);
+            }
+            return { error: '服务器响应格式错误' };
+        }
+        if (data.error === '未登录') {
+            if (state.currentUser && await _tryRefreshAuth()) {
+                return api(url, opts);
+            }
             state.currentUser = null;
             showAuthScreen();
             throw new Error('未登录');
         }
-        if (res.status === 403) {
+        if (data.error === 'CSRF token invalid') {
             return _handleCsrfFailure(url, opts);
         }
-        return { error: '服务器响应格式错误' };
+        _csrfRetryCount = 0;
+        return data;
+    } catch (e) {
+        if (e.message === 'Failed to fetch') {
+            toast('网络连接失败，请检查网络', 'error');
+            throw new Error('网络错误');
+        }
+        throw e;
     }
-    if (data.error === '未登录') {
-        state.currentUser = null;
-        showAuthScreen();
-        throw new Error('未登录');
-    }
-    if (data.error === 'CSRF token invalid') {
-        return _handleCsrfFailure(url, opts);
-    }
-    _csrfRetryCount = 0;
-    return data;
 }
 
 export async function apiStream(url, opts = {}) {
@@ -87,6 +125,9 @@ export async function apiStream(url, opts = {}) {
     });
     if (!res.ok) {
         if (res.status === 401) {
+            if (state.currentUser && await _tryRefreshAuth()) {
+                return apiStream(url, opts);
+            }
             state.currentUser = null;
             showAuthScreen();
             throw new Error('未登录');

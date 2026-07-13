@@ -69,6 +69,27 @@ export const THREE_CONFIG = {
         shadowColor: 'rgba(0, 0, 0, 0.4)',
         tiltOnHover: 1.5,
         perspective: 800
+    },
+
+    // --- 方案5: 模式切换 3D 过渡动画（相机穿越粒子层）---
+    MODE_TRANSITION: {
+        enabled: true,
+        duration: 800,
+        cameraPushZ: 80,
+        particleSpeedBoost: 3,
+        fogDensity: 0.015
+    },
+
+    // --- 方案6: 发送/接收消息粒子特效 ---
+    MESSAGE_PARTICLES: {
+        enabled: true,
+        sendCount: 80,
+        receiveCount: 60,
+        duration: 1000,
+        sendColor: 0xc8a84e,
+        receiveColor: 0xf0c060,
+        particleSize: 4,
+        spreadRadius: 15
     }
 };
 

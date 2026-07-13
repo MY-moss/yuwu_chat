@@ -251,7 +251,7 @@ def chat():
             "history_length": history_length,
             "credits_left": current_user.credits,
             "tokens_used": total_tokens,
-            "cost": cost,
+            "cost": actual_cost,
             "free": personal
         })
 

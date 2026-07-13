@@ -3,7 +3,7 @@
 # ============================================================
 import os
 import re
-import random
+import secrets
 import logging
 import requests
 from flask_login import current_user
@@ -203,7 +203,7 @@ def parse_rpg_reply(text):
 
 def roll_d20(modifier=0):
     """Roll a d20 with modifier, return (roll, total)"""
-    roll = random.randint(1, 20)
+    roll = secrets.randbelow(20) + 1
     total = roll + modifier
     return roll, total
 

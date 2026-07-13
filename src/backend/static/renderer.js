@@ -75,11 +75,15 @@ export function cleanText(t) {
     return text;
 }
 
+export function renderStoryMarkdown(text) {
+    return '<div class="md-body">' + renderMarkdown(text) + '</div>';
+}
+
 export function renderStory(text) {
     const storyText = $('storyText');
     const storyBox = $('storyBox');
     if (!storyText) return;
-    storyText.innerHTML = renderMarkdown(text);
+    storyText.innerHTML = renderStoryMarkdown(text);
     if (storyBox) storyBox.scrollTop = 0;
     setTimeout(() => highlightCode(storyText), 0);
 }
